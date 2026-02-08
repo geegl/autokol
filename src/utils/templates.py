@@ -10,7 +10,9 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config", "email_settings.yaml")
 
 # 默认配置（配置文件不存在时使用）
 DEFAULT_CONFIG = {
-    "email_subject": "Loved Your Work – Let's Create Something Awesome Together!",
+    "email_subjects": [
+        "Utopai Studios Creator Program: Amplify Your Vision"
+    ],
     "sender": {
         "name": "Cecilia",
         "title": "Director of Creative Partnerships"
@@ -32,15 +34,16 @@ def load_email_config():
 _config = load_email_config()
 
 # 导出配置值
-# 导出配置值
-EMAIL_SUBJECT = _config.get("email_subject", DEFAULT_CONFIG["email_subject"])
+EMAIL_SUBJECTS = _config.get("email_subjects", DEFAULT_CONFIG["email_subjects"])
+# 兼容旧配置 (如果用户没更新 yaml)
+if not isinstance(EMAIL_SUBJECTS, list):
+    EMAIL_SUBJECTS = [str(EMAIL_SUBJECTS)]
+
 CALENDLY_LINK = _config.get("calendly_link", DEFAULT_CONFIG["calendly_link"])
 
-def get_email_subject(mode="B2B"):
-    """根据模式获取邮件主题"""
-    if isinstance(EMAIL_SUBJECT, dict):
-        return EMAIL_SUBJECT.get(mode, EMAIL_SUBJECT.get("B2B", "Default Subject"))
-    return str(EMAIL_SUBJECT)
+def get_email_subjects():
+    """获取所有可用的邮件主题"""
+    return EMAIL_SUBJECTS
 
 # 邮件模板 (保持原有格式，支持变量替换)
 EMAIL_BODY_TEMPLATE = """Hi {creator_name},

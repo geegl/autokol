@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
-from src.utils.templates import get_email_subject, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
+from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
@@ -379,22 +379,44 @@ def render_mode_ui(mode, sidebar_config):
         st.subheader("✏️ 邮件模板编辑")
         
         # 初始化 session_state 用于存储模板
-        if f'email_subject_v3_{mode}' not in st.session_state:
-            st.session_state[f'email_subject_v3_{mode}'] = get_email_subject(mode)
+        if f'email_subject_final_{mode}' not in st.session_state:
+            # 默认使用第一个选项
+            subjects = get_email_subjects()
+            st.session_state[f'email_subject_final_{mode}'] = subjects[0] if subjects else "Default Subject"
+            
         if f'email_body_{mode}' not in st.session_state:
             st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
         
         with st.expander("📝 编辑邮件模板", expanded=False):
             st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`")
             
-            # 邮件主题
-            new_subject = st.text_input(
-                "邮件主题 (Subject)", 
-                value=st.session_state[f'email_subject_v3_{mode}'],
-                key=f"input_subject_v3_{mode}"
+            # --- V2.3 邮件主题选择器 ---
+            subjects = get_email_subjects()
+            custom_option = "Create your own..."
+            options = subjects + [custom_option]
+            
+            # 选择器
+            selected_option = st.selectbox(
+                "邮件主题 (Subject)",
+                options,
+                key=f"select_subject_{mode}"
             )
-            if new_subject != st.session_state[f'email_subject_v3_{mode}']:
-                st.session_state[f'email_subject_v3_{mode}'] = new_subject
+            
+            final_subject = selected_option
+            
+            # 自定义输入逻辑
+            if selected_option == custom_option:
+                custom_val = st.text_input(
+                    "输入自定义主题", 
+                    value=st.session_state.get(f'custom_subject_val_{mode}', ""),
+                    key=f"input_custom_subject_{mode}"
+                )
+                final_subject = custom_val
+                # 保存自定义值以便 rerender 时保持
+                st.session_state[f'custom_subject_val_{mode}'] = custom_val
+            
+            # 更新最终使用的 Subject
+            st.session_state[f'email_subject_final_{mode}'] = final_subject
             
             # 邮件正文
             new_body = st.text_area(
@@ -408,8 +430,14 @@ def render_mode_ui(mode, sidebar_config):
             
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
+
                 if st.button("🔄 重置为默认模板", key=f"btn_reset_template_{mode}"):
-                    st.session_state[f'email_subject_v3_{mode}'] = get_email_subject(mode)
+                    # 重置逻辑：简单地重跑，因为 selectbox 没有默认值的便捷重置方式，
+                    # 但 rerender 会重新加载 get_email_subjects 的第一个
+                    # 如果需要强制重置 selectbox index，需要使用 key hack 或 callback，
+                    # 这里简单处理：清除自定义值
+                    if f'custom_subject_val_{mode}' in st.session_state:
+                        del st.session_state[f'custom_subject_val_{mode}']
                     st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
                     st.rerun()
             with col_info:
@@ -510,7 +538,8 @@ def render_mode_ui(mode, sidebar_config):
                             )
                             
                             # 使用用户编辑的主题
-                            user_subject = st.session_state.get(f'email_subject_v3_{mode}', EMAIL_SUBJECT)
+                            # 使用用户编辑的主题
+                            user_subject = st.session_state.get(f'email_subject_final_{mode}', "Subject Error")
                             
                             success, msg, error_type = send_email_gmail(
                                 test_email, user_subject, email_body_preview, final_html,
@@ -667,7 +696,8 @@ def render_mode_ui(mode, sidebar_config):
                         )
                         
                         # 使用用户编辑的主题
-                        user_subject = st.session_state.get(f'email_subject_v3_{mode}', EMAIL_SUBJECT)
+                        # 使用用户编辑的主题
+                        user_subject = st.session_state.get(f'email_subject_final_{mode}', "Subject Error")
                         
                         ok, msg, error_type = send_email_gmail(
                             dest_email, user_subject, body_txt, body_html,
