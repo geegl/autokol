@@ -3,7 +3,7 @@ from datetime import datetime
 import pytz
 
 def render_tracking_dashboard(tracking_url):
-    """渲染邮件追踪仪表盘 - 按收件人聚合显示"""
+    """渲染邮件追踪仪表盘 - 区分确认阅读和可能预加载"""
     st.header("📊 邮件追踪仪表盘")
     
     if not tracking_url:
@@ -34,74 +34,116 @@ def render_tracking_dashboard(tracking_url):
     data = st.session_state.get('tracking_data')
     
     if data:
-        # 统计摘要 - 适配新格式
+        # 主要指标
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("👥 收件人数", data.get('total_contacts', 0))
         with col2:
-            st.metric("👁️ 已打开", data.get('opened_count', 0))
+            st.metric("✅ 确认阅读", data.get('confirmed_reads', 0), 
+                     help="有真实打开 + 点击过链接的收件人")
         with col3:
-            st.metric("🔗 已点击", data.get('clicked_count', 0))
+            st.metric("⚠️ 可能预加载", data.get('possible_preloads', 0),
+                     help="有打开记录但未点击，可能是邮件客户端自动加载")
         with col4:
-            st.metric("📈 打开率", data.get('open_rate', '0%'))
+            st.metric("📈 确认阅读率", data.get('confirmed_rate', '0%'))
+        
+        st.divider()
         
         # 详细指标
-        col5, col6 = st.columns(2)
-        with col5:
-            st.metric("👁️ 总打开次数", data.get('total_opens', 0), help="所有收件人打开邮件的总次数（包含重复打开）")
-        with col6:
-            st.metric("🔗 总点击次数", data.get('total_clicks', 0), help="所有收件人点击链接的总次数")
+        with st.expander("📊 详细统计", expanded=False):
+            col5, col6, col7, col8 = st.columns(4)
+            with col5:
+                st.metric("👁️ 总打开次数", data.get('total_opens', 0))
+            with col6:
+                st.metric("🧑 真人打开", data.get('human_opens', 0),
+                         help="非 Bot 的打开次数")
+            with col7:
+                st.metric("🤖 Bot 打开", data.get('bot_opens', 0),
+                         help="被识别为 Bot/预加载的打开次数")
+            with col8:
+                st.metric("🔗 总点击次数", data.get('total_clicks', 0))
         
         st.divider()
         
         recipients = data.get('recipients', [])
         if recipients:
-            # 分类显示
-            opened_list = [r for r in recipients if r.get('opened')]
-            not_opened_list = [r for r in recipients if not r.get('opened')]
+            # 三栏分类显示
+            confirmed = [r for r in recipients if r.get('confirmed_read')]
+            preload = [r for r in recipients if r.get('possible_preload')]
+            not_opened = [r for r in recipients if not r.get('opened')]
             
-            col_opened, col_not_opened = st.columns(2)
+            tab1, tab2, tab3 = st.tabs([
+                f"✅ 确认阅读 ({len(confirmed)})",
+                f"⚠️ 可能预加载 ({len(preload)})",
+                f"❌ 未打开 ({len(not_opened)})"
+            ])
             
-            with col_opened:
-                st.subheader(f"✅ 已打开 ({len(opened_list)})")
-                if opened_list:
-                    for r in opened_list:
-                        email = r.get('email', 'unknown')
-                        name = r.get('name', 'Unknown')
-                        total_opens = r.get('total_opens', 0)
-                        total_clicks = r.get('total_clicks', 0)
-                        clicked_icon = "🔗" if r.get('clicked') else ""
-                        
-                        # 最后活动时间
-                        last_activity = r.get('last_activity', '')
-                        if last_activity:
-                            try:
-                                dt = datetime.fromisoformat(last_activity.replace('Z', '+00:00'))
-                                local_tz = pytz.timezone('Asia/Shanghai')
-                                dt_local = dt.astimezone(local_tz)
-                                last_activity = dt_local.strftime('%m-%d %H:%M')
-                            except Exception:
-                                last_activity = last_activity[:16]
-                        
-                        # 显示卡片
-                        st.markdown(f"**{name}** {clicked_icon}")
-                        st.caption(f"{email}")
-                        st.caption(f"👁️ {total_opens}次打开 | 🔗 {total_clicks}次点击 | 最后活动: {last_activity}")
-                        st.markdown("---")
+            with tab1:
+                if confirmed:
+                    for r in confirmed:
+                        _render_recipient_card(r, show_bot_info=True)
                 else:
-                    st.info("暂无打开记录")
+                    st.info("暂无确认阅读的收件人")
             
-            with col_not_opened:
-                st.subheader(f"❌ 未打开 ({len(not_opened_list)})")
-                if not_opened_list:
-                    for r in not_opened_list:
-                        email = r.get('email', 'unknown')
-                        name = r.get('name', 'Unknown')
-                        st.markdown(f"**{name}**")
-                        st.caption(f"{email}")
+            with tab2:
+                if preload:
+                    st.caption("💡 这些收件人有打开记录，但没有点击任何链接。可能是邮件客户端自动预加载，也可能是用户只是浏览了一下。")
+                    for r in preload:
+                        _render_recipient_card(r, show_bot_info=True)
                 else:
-                    st.success("所有邮件都已打开！")
+                    st.success("没有疑似预加载的记录")
+            
+            with tab3:
+                if not_opened:
+                    for r in not_opened:
+                        st.markdown(f"**{r.get('name', 'Unknown')}**")
+                        st.caption(f"{r.get('email', 'unknown')}")
+                else:
+                    st.success("所有邮件都有打开记录！")
         else:
             st.info("📭 暂无追踪数据。发送邮件后，收件人打开/点击将自动记录。")
     else:
         st.info("点击「刷新数据」获取追踪统计")
+
+
+def _render_recipient_card(r, show_bot_info=False):
+    """渲染单个收件人卡片"""
+    email = r.get('email', 'unknown')
+    name = r.get('name', 'Unknown')
+    human_opens = r.get('human_opens', 0)
+    bot_opens = r.get('bot_opens', 0)
+    total_clicks = r.get('total_clicks', 0)
+    bot_types = r.get('bot_types', [])
+    
+    # 最后活动时间
+    last_activity = r.get('last_activity', '')
+    if last_activity:
+        try:
+            dt = datetime.fromisoformat(last_activity.replace('Z', '+00:00'))
+            local_tz = pytz.timezone('Asia/Shanghai')
+            dt_local = dt.astimezone(local_tz)
+            last_activity = dt_local.strftime('%m-%d %H:%M')
+        except Exception:
+            last_activity = last_activity[:16]
+    
+    # 显示卡片
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown(f"**{name}**")
+        st.caption(f"{email}")
+    with col2:
+        if total_clicks > 0:
+            st.markdown("🔗 已点击")
+    
+    # 详细信息
+    info_parts = [f"🧑 {human_opens}次真人打开", f"🔗 {total_clicks}次点击"]
+    if show_bot_info and bot_opens > 0:
+        info_parts.append(f"🤖 {bot_opens}次Bot打开")
+    info_parts.append(f"最后活动: {last_activity}")
+    st.caption(" | ".join(info_parts))
+    
+    # Bot 类型
+    if show_bot_info and bot_types:
+        st.caption(f"🤖 检测到的 Bot 类型: {', '.join(bot_types)}")
+    
+    st.markdown("---")

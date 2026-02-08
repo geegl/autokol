@@ -46,12 +46,65 @@ async function saveData(data) {
     memoryStore = data;
 }
 
+// 检测 Bot/预加载 User-Agent
+// 返回: { isBot: boolean, botType: string|null }
+function detectBot(userAgent) {
+    if (!userAgent) return { isBot: false, botType: null };
+
+    const ua = userAgent.toLowerCase();
+
+    // Apple Mail Privacy Protection (iOS 15+)
+    if (ua.includes('apple') && ua.includes('mail') && ua.includes('privacy')) {
+        return { isBot: true, botType: 'Apple Mail Privacy' };
+    }
+
+    // iOS 预加载 (Apple 的代理服务器)
+    if (ua.includes('proxy') || ua.includes('pre-fetch') || ua.includes('prefetch')) {
+        return { isBot: true, botType: 'Prefetch Proxy' };
+    }
+
+    // Google 图片代理
+    if (ua.includes('googleimageproxy') || ua.includes('google-proxy')) {
+        return { isBot: true, botType: 'Google Image Proxy' };
+    }
+
+    // 已知的邮件预览 Bot
+    const botPatterns = [
+        { pattern: 'yahoo! slurp', type: 'Yahoo Bot' },
+        { pattern: 'bingpreview', type: 'Bing Preview' },
+        { pattern: 'facebookexternalhit', type: 'Facebook Bot' },
+        { pattern: 'twitterbot', type: 'Twitter Bot' },
+        { pattern: 'linkedinbot', type: 'LinkedIn Bot' },
+        { pattern: 'slackbot', type: 'Slack Bot' },
+        { pattern: 'whatsapp', type: 'WhatsApp Bot' },
+        { pattern: 'telegrambot', type: 'Telegram Bot' },
+        { pattern: 'crawl', type: 'Crawler' },
+        { pattern: 'spider', type: 'Spider' },
+        { pattern: 'bot/', type: 'Generic Bot' },
+        { pattern: 'bot;', type: 'Generic Bot' },
+    ];
+
+    for (const { pattern, type } of botPatterns) {
+        if (ua.includes(pattern)) {
+            return { isBot: true, botType: type };
+        }
+    }
+
+    // Outlook 预览 (通常没有完整的浏览器 UA)
+    if (!ua.includes('mozilla') && !ua.includes('chrome') && !ua.includes('safari') && !ua.includes('firefox')) {
+        // 太短或太奇怪的 UA 可能是 Bot
+        if (ua.length < 30) {
+            return { isBot: true, botType: 'Suspicious UA' };
+        }
+    }
+
+    return { isBot: false, botType: null };
+}
+
 // 从 email_id 解析收件人信息
-// 格式: mode_index_timestamp_recipientEmail_recipientName
 function parseEmailId(emailId) {
     const parts = emailId.split('_');
     if (parts.length >= 5) {
-        // 收件人邮箱格式: xxx-at-domain-com
         const emailPart = parts[3] || '';
         const recipientEmail = emailPart.replace('-at-', '@').replace(/-/g, '.');
         const recipientName = parts.slice(4).join('_') || 'Unknown';
@@ -61,7 +114,6 @@ function parseEmailId(emailId) {
             timestamp: parts[2],
             recipientEmail: recipientEmail,
             recipientName: recipientName,
-            // 唯一邮件 ID (不含收件人信息，用于聚合)
             emailKey: `${parts[0]}_${parts[1]}_${parts[2]}`
         };
     }
@@ -69,7 +121,6 @@ function parseEmailId(emailId) {
 }
 
 module.exports = async (req, res) => {
-    // 获取追踪 ID
     const id = req.query.id;
 
     if (!id) {
@@ -78,15 +129,17 @@ module.exports = async (req, res) => {
         return res.send(TRANSPARENT_PIXEL);
     }
 
-    // 解析 email_id
     const parsed = parseEmailId(id);
 
     if (!parsed || !parsed.recipientEmail) {
-        // 无法解析，跳过记录
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         return res.send(TRANSPARENT_PIXEL);
     }
+
+    // 检测 Bot
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const { isBot, botType } = detectBot(userAgent);
 
     // 记录打开事件 - 按收件人聚合
     try {
@@ -99,6 +152,7 @@ module.exports = async (req, res) => {
             data.contacts[email] = {
                 name: parsed.recipientName,
                 total_opens: 0,
+                total_bot_opens: 0,  // 新增：Bot 打开计数
                 total_clicks: 0,
                 first_contact: now,
                 last_activity: now,
@@ -115,19 +169,24 @@ module.exports = async (req, res) => {
             };
         }
 
-        // 添加打开事件
+        // 添加打开事件（包含 Bot 标记）
         data.contacts[email].emails[parsed.emailKey].opens.push({
             timestamp: now,
             ip: req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
-            userAgent: req.headers['user-agent'] || 'unknown'
+            userAgent: userAgent,
+            isBot: isBot,
+            botType: botType
         });
 
         // 更新汇总统计
         data.contacts[email].total_opens += 1;
+        if (isBot) {
+            data.contacts[email].total_bot_opens = (data.contacts[email].total_bot_opens || 0) + 1;
+        }
         data.contacts[email].last_activity = now;
 
         await saveData(data);
-        console.log(`[OPEN] ${email} (${parsed.recipientName}) opened email at ${now}`);
+        console.log(`[OPEN] ${email} - Bot: ${isBot ? botType : 'No'} at ${now}`);
     } catch (error) {
         console.error('Tracking error:', error);
     }
