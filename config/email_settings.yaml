@@ -1,0 +1,41 @@
+# 邮件配置文件
+# 修改后重启应用生效
+
+# 邮件主题
+email_subject: "Loved Your Work – Let's Create Something Awesome Together!"
+
+# 发件人签名信息 (默认值，可在侧边栏覆盖)
+sender:
+  name: "Cecilia"
+  title: "Director of Creative Partnerships"
+
+# 会议链接
+calendly_link: "https://calendly.com/cecilia-utopaistudios/30min"
+
+# 邮件正文模板
+# 可用变量: {creator_name}, {sender_name}, {project_title}, {technical_detail}, {sender_title}, {calendly_link}
+email_template: |
+  Hi {creator_name},
+
+  I'm {sender_name} from UTOPAI Studios – an AI-powered 3D animation studio.
+
+  Loved your work on {project_title} – particularly the {technical_detail}. We're building a platform that lets creators like you design and animate virtual characters in real-time using AI, and we think your style would be perfect for it.
+
+  Would love to give you an early look and get your thoughts. Here's a quick link to book a call if you'd like to connect:
+
+  {calendly_link}
+
+  Looking forward!
+
+  Warm regards,
+  {sender_name}
+  {sender_title} | UTOPAI Studios
+
+# 附件配置 (按模式分类)
+attachments:
+  B2B:
+    - "Utopai Early Access - Creator FAQ - V2.pdf"
+    - "One-pager-enterprise.pdf"
+  B2C:
+    - "Utopai Early Access - Creator FAQ - V2.pdf"
+    - "One-pager_final.pdf"

@@ -10,6 +10,7 @@ ATTACHMENTS_DIR = os.path.join(ASSETS_DIR, "attachments")
 
 # 输出目录
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+os.makedirs(OUTPUT_DIR, exist_ok=True)  # 确保目录存在
 
 # --- B2B/B2C 配置 ---
 MODE_CONFIG = {

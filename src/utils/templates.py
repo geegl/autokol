@@ -1,5 +1,41 @@
-EMAIL_SUBJECT = "Utopai Studios Creator Program: Amplify Your Vision - Early and exclusive access to a new AI model for cinematic storytelling?"
+"""
+邮件模板 - 从配置文件加载
+"""
+import os
+import yaml
 
+# 配置文件路径
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CONFIG_FILE = os.path.join(BASE_DIR, "config", "email_settings.yaml")
+
+# 默认配置（配置文件不存在时使用）
+DEFAULT_CONFIG = {
+    "email_subject": "Loved Your Work – Let's Create Something Awesome Together!",
+    "sender": {
+        "name": "Cecilia",
+        "title": "Director of Creative Partnerships"
+    },
+    "calendly_link": "https://calendly.com/cecilia-utopaistudios/30min"
+}
+
+def load_email_config():
+    """加载邮件配置文件"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            print(f"Warning: Failed to load email config: {e}")
+    return DEFAULT_CONFIG
+
+# 加载配置
+_config = load_email_config()
+
+# 导出配置值
+EMAIL_SUBJECT = _config.get("email_subject", DEFAULT_CONFIG["email_subject"])
+CALENDLY_LINK = _config.get("calendly_link", DEFAULT_CONFIG["calendly_link"])
+
+# 邮件模板 (保持原有格式，支持变量替换)
 EMAIL_BODY_TEMPLATE = """Hi {creator_name},
 
 I'm {sender_name} from Utopai Studios. We're building a "Cinematic Storytelling Engine" for people who care about story first.
@@ -72,3 +108,11 @@ Utopai Studios</p>
 {tracking_pixel}
 </body>
 </html>"""
+
+
+def reload_config():
+    """重新加载配置（用于热更新）"""
+    global _config, EMAIL_SUBJECT, CALENDLY_LINK
+    _config = load_email_config()
+    EMAIL_SUBJECT = _config.get("email_subject", DEFAULT_CONFIG["email_subject"])
+    CALENDLY_LINK = _config.get("calendly_link", DEFAULT_CONFIG["calendly_link"])

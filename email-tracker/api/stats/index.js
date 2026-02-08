@@ -17,15 +17,21 @@ async function loadData() {
     if (redis) {
         try {
             const data = await redis.get('tracking_data_v2');
-            if (data) return { version: 'v2', data };
+            if (data) return { version: 'v2', data, storage: 'redis' };
 
             const oldData = await redis.get('tracking_data');
-            if (oldData) return { version: 'v1', data: oldData };
+            if (oldData) return { version: 'v1', data: oldData, storage: 'redis' };
+
+            // Redis 连接正常但没有数据
+            return { version: 'v2', data: { contacts: {} }, storage: 'redis' };
         } catch (e) {
             console.error('Redis load error:', e);
+            // Redis 连接失败，回退到内存
+            return { version: 'v2', data: { contacts: {} }, storage: 'memory (redis error)' };
         }
     }
-    return { version: 'v2', data: { contacts: {} } };
+    // Redis 未配置
+    return { version: 'v2', data: { contacts: {} }, storage: 'memory (no redis)' };
 }
 
 // 将旧格式数据转换为新格式
@@ -200,7 +206,7 @@ module.exports = async (req, res) => {
             open_rate: recipients.length > 0 ? ((recipients.filter(r => r.opened).length / recipients.length) * 100).toFixed(1) + '%' : '0%',
             // 收件人列表
             recipients: recipients,
-            storage: 'redis',
+            storage: result.storage,
             data_version: result.version
         });
     }
@@ -208,7 +214,7 @@ module.exports = async (req, res) => {
     // 原始数据
     res.json({
         contacts: data.contacts,
-        storage: 'redis',
+        storage: result.storage,
         data_version: result.version
     });
 };

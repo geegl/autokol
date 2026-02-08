@@ -22,6 +22,7 @@ def generate_with_llm(prompt, client, model, max_retries=3):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
                 max_tokens=200,
+                timeout=30,  # 30秒超时，防止线程卡死
                 extra_body={"enable_thinking": False}
             )
             
