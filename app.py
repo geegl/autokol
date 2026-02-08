@@ -926,7 +926,18 @@ with tab_tracking:
                             email = r.get('recipient_email', 'unknown').replace('-at-', '@').replace('-', '.')
                             name = r.get('recipient_name', 'unknown')
                             clicked = "🔗" if r.get('clicked') else ""
-                            first_open = r.get('first_open', '')[:16] if r.get('first_open') else ''
+                            first_open = r.get('first_open', '')
+                            if first_open:
+                                try:
+                                    from datetime import datetime
+                                    import pytz
+                                    dt = datetime.fromisoformat(first_open.replace('Z', '+00:00'))
+                                    london_tz = pytz.timezone('Europe/London')
+                                    dt_london = dt.astimezone(london_tz)
+                                    first_open = dt_london.strftime('%Y-%m-%d %H:%M') + " (LDN)"
+                                except Exception:
+                                    first_open = first_open[:16]
+                            
                             st.markdown(f"**{name}** {clicked}")
                             st.caption(f"{email} | 首次打开: {first_open}")
                     else:
