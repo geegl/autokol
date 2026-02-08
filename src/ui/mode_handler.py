@@ -613,7 +613,8 @@ def render_mode_ui(mode, sidebar_config):
             use_smart_interval = st.checkbox(
                 "🎲 启用智能随机间隔 (5-10秒)", 
                 value=True,
-                help="【推荐】模拟真实人工发送行为，每封邮件随机等待 5-10 秒，有效降低被 Gmail 判定为机器人的风险。"
+                help="【推荐】模拟真实人工发送行为，每封邮件随机等待 5-10 秒，有效降低被 Gmail 判定为机器人的风险。",
+                key=f"use_smart_interval_{mode}"
             )
             
             if not use_smart_interval:
@@ -622,7 +623,8 @@ def render_mode_ui(mode, sidebar_config):
                     min_value=2, 
                     max_value=30, 
                     value=5,
-                    help="设置固定的等待时间。"
+                    help="设置固定的等待时间。",
+                    key=f"fixed_interval_{mode}"
                 )
             else:
                 send_interval = st.slider(
@@ -630,7 +632,8 @@ def render_mode_ui(mode, sidebar_config):
                     min_value=2, 
                     max_value=60, 
                     value=(5, 10),
-                    help="设置随机等待的最小值和最大值。"
+                    help="设置随机等待的最小值和最大值。",
+                    key=f"range_interval_{mode}"
                 )
                 st.info(f"✅ 智能模式已启用：每封邮件将随机等待 {send_interval[0]} 到 {send_interval[1]} 秒。")
 
