@@ -609,14 +609,24 @@ def render_mode_ui(mode, sidebar_config):
             elif remaining <= 50:
                 st.warning(f"⚠️ 今日剩余额度仅 {remaining} 封，请注意控制发送量！")
             
-            # --- 发送速率控制 (V2.0) ---
-            send_interval = st.slider(
-                "⏱️ 发送间隔 (秒)", 
-                min_value=2, 
-                max_value=30, 
-                value=3,
-                help="设置每封邮件发送后的等待时间。建议保持在 3-5 秒或更高，以避免触发 Gmail 的反垃圾邮件保护。"
+            # --- 发送速率控制 (V2.8 Smart Interval) ---
+            use_smart_interval = st.checkbox(
+                "🎲 启用智能随机间隔 (5-10秒)", 
+                value=True,
+                help="【推荐】模拟真实人工发送行为，每封邮件随机等待 5-10 秒，有效降低被 Gmail 判定为机器人的风险。"
             )
+            
+            if not use_smart_interval:
+                send_interval = st.slider(
+                    "⏱️ 固定发送间隔 (秒)", 
+                    min_value=2, 
+                    max_value=30, 
+                    value=5,
+                    help="设置固定的等待时间。"
+                )
+            else:
+                st.info("已启用智能随机间隔模式：每封邮件发送后将随机等待 5 到 10 秒。")
+                send_interval = None
 
             st.divider()
             
@@ -760,7 +770,13 @@ def render_mode_ui(mode, sidebar_config):
                     if remaining_count > 0:
                         st.info(f"📤 队列剩余: {remaining_count} 封")
                     
-                    time.sleep(send_interval)  # 使用用户设置的间隔
+                    if use_smart_interval:
+                        import random
+                        wait_seconds = random.uniform(5, 10)
+                        st.caption(f"⏳ 智能随机等待: {wait_seconds:.1f} 秒...")
+                        time.sleep(wait_seconds)
+                    else:
+                        time.sleep(send_interval)  # 使用用户设置的固定间隔
                     st.rerun()
             
             # 暂停状态提示
