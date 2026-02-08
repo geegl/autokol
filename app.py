@@ -33,8 +33,9 @@ if sentry_dsn:
         import sentry_sdk
         sentry_sdk.init(
             dsn=sentry_dsn,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
+            send_default_pii=True,  # 收集用户信息 (IP, 请求头等)
+            traces_sample_rate=1.0,  # 100% 性能追踪
+            profile_session_sample_rate=1.0,  # 100% 性能分析
         )
     except Exception as e:
         print(f"Sentry init failed: {e}")
