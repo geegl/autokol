@@ -151,6 +151,14 @@ def render_mode_ui(mode, sidebar_config):
                 valid_rename = {k: v for k, v in rename_dict.items() if k in df.columns}
                 if valid_rename:
                     df = df.rename(columns=valid_rename)
+        
+        # --- 数据预清洗 (V2.1 Fix: B2C NaN issue) ---
+        #将所有NaN填充为空字符串，防止后续处理出现 "nan"
+        df = df.fillna("")
+        # 确保所有列都是字符串类型（除了可能的数字列，但在邮件生成上下文中全转为字符串更安全）
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).replace('nan', '')
 
         # --- 3. 附件选择 (V2.0) ---
         # 扫描 assets/attachments/{mode} 目录
@@ -181,35 +189,59 @@ def render_mode_ui(mode, sidebar_config):
         if not final_attachments:
              st.warning("⚠️ 未选择任何附件，邮件将仅包含正文")
              
-        # --- 4. 进度管理 ---
+        # --- 4. 进度管理与确认 (V2.1) ---
         # 尝试加载 output 目录下的进度文件
         progress_df = load_progress(mode)
+        is_continuing_progress = False
         
         if progress_df is not None:
             if len(progress_df) == len(df):
-                st.info(f"📂 检测到上次未完成的进度 ({len(progress_df)} 行)，已自动加载。")
+                is_continuing_progress = True
                 df = progress_df
-            else:
-                st.warning(f"⚠️ 检测到旧进度文件 ({len(progress_df)} 行)，但与当前文件 ({len(df)} 行) 不匹配，已忽略并重新开始。")
-                # 初始化新列
-                if 'AI_Project_Title' not in df.columns:
-                    df['AI_Project_Title'] = ""
-                if 'AI_Technical_Detail' not in df.columns:
-                    df['AI_Technical_Detail'] = ""
-                if 'Email_Status' not in df.columns:
-                    df['Email_Status'] = "待生成"
-                if 'Content_Source' not in df.columns:
-                    df['Content_Source'] = ""
-        else:
-            # 初始化新列
-            if 'AI_Project_Title' not in df.columns:
-                df['AI_Project_Title'] = ""
-            if 'AI_Technical_Detail' not in df.columns:
-                df['AI_Technical_Detail'] = ""
-            if 'Email_Status' not in df.columns:
-                df['Email_Status'] = "待生成"
-            if 'Content_Source' not in df.columns:
-                df['Content_Source'] = ""
+                # 再次清洗进度数据的 NaN
+                df = df.fillna("")
+        
+        # 如果不是继续旧进度，则需要用户确认 (V2.1 UX)
+        if not is_continuing_progress:
+            if not st.session_state.get(f'leads_confirmed_{mode}'):
+                st.divider()
+                st.subheader("📋 Leads 数据确认")
+                
+                total_leads = len(df)
+                # 计算有效邮箱 (基于 config['columns']['contact_info'])
+                contact_col = config['columns']['contact_info']
+                valid_emails = 0
+                if contact_col in df.columns:
+                     # 简单检查是否包含 @
+                     valid_emails = df[contact_col].astype(str).apply(lambda x: 1 if '@' in x else 0).sum()
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("总行数", total_leads)
+                c2.metric("有效邮箱 (预估)", valid_emails)
+                c3.metric("待处理", total_leads)
+                
+                if st.button("✅ 确认并开始处理", type="primary", key=f"btn_confirm_leads_{mode}"):
+                    st.session_state[f'leads_confirmed_{mode}'] = True
+                    st.rerun()
+                
+                st.info("💡 请确认数据无误后点击上方按钮开始处理。")
+                if progress_df is not None:
+                    st.warning(f"⚠️ 注意：检测到旧进度 ({len(progress_df)} 行) 与当前文件 ({len(df)} 行) 不匹配，确认后将**忽略旧进度并重新开始**。")
+                
+                st.stop() # 暂停执行，等待确认
+
+        if is_continuing_progress:
+             st.info(f"📂 已自动加载上次进度 ({len(df)} 行)。")
+
+        # 初始化新列 (确保列存在)
+        if 'AI_Project_Title' not in df.columns:
+            df['AI_Project_Title'] = ""
+        if 'AI_Technical_Detail' not in df.columns:
+            df['AI_Technical_Detail'] = ""
+        if 'Email_Status' not in df.columns:
+            df['Email_Status'] = "待生成"
+        if 'Content_Source' not in df.columns:
+            df['Content_Source'] = ""
         
         # --- 3. 数据预览与编辑 ---
         st.subheader("🛠️ 客户数据预览")
@@ -374,13 +406,19 @@ def render_mode_ui(mode, sidebar_config):
             tracking_pixel = generate_tracking_pixel(preview_email_id, None)  # 返回空字符串
             tracked_calendly = "https://calendly.com/cecilia-utopaistudios/30min"  # 预览时用原始链接
             
+            # 预览内容清洗 (防止 nan)
+            p_title = str(current_row.get('AI_Project_Title', ''))
+            t_detail = str(current_row.get('AI_Technical_Detail', ''))
+            if p_title.lower() == 'nan': p_title = ""
+            if t_detail.lower() == 'nan': t_detail = ""
+
             # 使用用户编辑的模板
             user_template = st.session_state.get(f'email_body_{mode}', EMAIL_BODY_TEMPLATE)
             email_body_preview = user_template.format(
                 creator_name=english_name,
                 sender_name=sidebar_config['sender_name'],
-                project_title=current_row['AI_Project_Title'],
-                technical_detail=current_row['AI_Technical_Detail'],
+                project_title=p_title,
+                technical_detail=t_detail,
                 sender_title=sidebar_config['sender_title']
             )
             
