@@ -130,7 +130,7 @@ No lengthy forms. We've made a 2-minute demo that shows our workflow turning a s
 <ol>
 <li>"Demo" – and I'll send the video link straight away.</li>
 <li>"More info" – for a detailed brief on the Pioneer program.</li>
-<li>"Talk" – to schedule a 15-minute chat soon. <a href="https://calendly.com/cecilia-utopaistudios/30min">Book a meeting</a>.</li>
+<li>"Talk" – to schedule a 15-minute chat soon. <a href="{calendly_link}">Book a meeting</a>.</li>
 </ol>
 
 <p>Looking forward to hearing your thoughts.</p>
@@ -139,6 +139,7 @@ No lengthy forms. We've made a 2-minute demo that shows our workflow turning a s
 {sender_name}<br>
 {sender_title}<br>
 Utopai Studios</p>
+{tracking_pixel}
 </body>
 </html>"""
 
@@ -192,6 +193,23 @@ def extract_english_name(name_str):
     # 清理多余空格
     name = ' '.join(name.split()).strip()
     return name if name else "there"
+
+# 追踪服务 URL (Vercel 部署)
+TRACKING_BASE_URL = "https://autokol.vercel.app"
+CALENDLY_URL = "https://calendly.com/cecilia-utopaistudios/30min"
+
+def generate_tracking_pixel(email_id, tracking_url=None):
+    """生成追踪像素 HTML"""
+    if not tracking_url:
+        return ""
+    return f'<img src="{tracking_url}/api/open/{email_id}" width="1" height="1" style="display:none" alt="">'
+
+def generate_tracked_link(email_id, original_url, tracking_url=None):
+    """生成追踪链接"""
+    if not tracking_url:
+        return original_url
+    encoded_url = quote(original_url, safe='')
+    return f"{tracking_url}/api/click/{email_id}?url={encoded_url}"
 
 def save_progress(df, mode):
     """保存进度到本地 CSV"""
@@ -666,12 +684,16 @@ def render_mode_ui(mode):
                             st.text_area("📧 纯文本版本", value=text_preview, height=400, key=f"text_{mode}_{selected_idx}")
                         with col2:
                             st.markdown("**🌐 HTML 预览：**")
+                            # 生成预览用的 email_id (仅用于显示)
+                            preview_email_id = f"preview_{selected_idx}"
                             html_preview = EMAIL_BODY_HTML_TEMPLATE.format(
                                 creator_name=extract_english_name(selected_row.get(cols['contact_person'], 'Creator')),
                                 sender_name=sender_name,
                                 sender_title=sender_title,
                                 project_title=selected_row.get('AI_Project_Title', '[Project Title]'),
-                                technical_detail=selected_row.get('AI_Technical_Detail', '[Technical Detail]')
+                                technical_detail=selected_row.get('AI_Technical_Detail', '[Technical Detail]'),
+                                calendly_link=generate_tracked_link(preview_email_id, CALENDLY_URL, tracking_url if tracking_url else None),
+                                tracking_pixel=generate_tracking_pixel(preview_email_id, tracking_url if tracking_url else None)
                             )
                             st.components.v1.html(html_preview, height=400, scrolling=True)
         
@@ -732,13 +754,17 @@ def render_mode_ui(mode):
             
             if st.button("🧪 发送测试邮件", disabled=not (email_user and email_pass), key=f"test_send_{mode}"):
                 test_row = df.iloc[test_idx]
+                # 生成唯一邮件 ID 用于追踪
+                email_id = f"{mode}_{test_idx}_{int(datetime.now().timestamp())}"
                 body_text = render_full_email(test_row, sender_name, sender_title, mode)
                 body_html = EMAIL_BODY_HTML_TEMPLATE.format(
                     creator_name=extract_english_name(test_row.get(cols['contact_person'], 'Creator')),
                     sender_name=sender_name,
                     sender_title=sender_title,
                     project_title=test_row.get('AI_Project_Title', '[Project Title]'),
-                    technical_detail=test_row.get('AI_Technical_Detail', '[Technical Detail]')
+                    technical_detail=test_row.get('AI_Technical_Detail', '[Technical Detail]'),
+                    calendly_link=generate_tracked_link(email_id, CALENDLY_URL, tracking_url if tracking_url else None),
+                    tracking_pixel=generate_tracking_pixel(email_id, tracking_url if tracking_url else None)
                 )
                 
                 # 通过 Gmail SMTP 发送测试邮件
@@ -778,13 +804,17 @@ def render_mode_ui(mode):
                     for i, (idx, row) in enumerate(to_send.iterrows()):
                         target_email = row.get('Email')
                         
+                        # 生成唯一邮件 ID 用于追踪
+                        email_id = f"{mode}_{idx}_{int(datetime.now().timestamp())}"
                         body_text = render_full_email(row, sender_name, sender_title, mode)
                         body_html = EMAIL_BODY_HTML_TEMPLATE.format(
                             creator_name=extract_english_name(row.get(cols['contact_person'], 'Creator')),
                             sender_name=sender_name,
                             sender_title=sender_title,
                             project_title=row.get('AI_Project_Title', '[Project Title]'),
-                            technical_detail=row.get('AI_Technical_Detail', '[Technical Detail]')
+                            technical_detail=row.get('AI_Technical_Detail', '[Technical Detail]'),
+                            calendly_link=generate_tracked_link(email_id, CALENDLY_URL, tracking_url if tracking_url else None),
+                            tracking_pixel=generate_tracking_pixel(email_id, tracking_url if tracking_url else None)
                         )
                         
                         # 通过 Gmail SMTP 发送
