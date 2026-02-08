@@ -1,14 +1,17 @@
-# 🔥 Utopai Cold Email Engine
+# 🔥 Utopai Cold Email Engine (V2.2)
 
 专业的冷启动邮件发送引擎，专为 Utopai Studios 定制。集成 LLM 个性化生成、PDF 附件管理、Vercel 邮件追踪和 Gmail SMTP 发送服务。
 
-## ✨ 特性
+## ✨ 核心特性
 
-- **模块化架构**：专业的 `src/` 目录结构，业务逻辑与 UI 分离。
-- **智能化生成**：利用硅基流动 DeepSeek-V3.2 API 自动生成个性化的 Project Title 和 Technical Detail。
-- **自动化追踪**：集成 Vercel + Upstash Redis 追踪邮件打开率和点击率。
-- **本地化管理**：支持直接读取 `assets/leads_form` 中的客户名单，生成结果自动保存在 `output/`。
-- **原生 Gmail 支持**：完全移除第三方邮件 API，直接通过 Gmail/Google Workspace SMTP 发送，到达率更高。
+- **智能化生成**: 利用硅基流动 DeepSeek-V3.2 API 自动生成个性化的 "Project Title" 和 "Technical Detail"。
+- **B2B/B2C 双模式**: 支持针对企业客户和创作者的不同话术策略与邮件主题。
+- **动态数据映射 (V2.0)**: 上传任意格式 Excel/CSV，智能映射列名。
+- **安全发送 (V2.0)**: 内置 Gmail SMTP 轮询，支持发送速率控制 (1-10s 间隔)，避免被封号。
+- **任务恢复 (V2.2)**: 自动保存发送进度，支持 **断点续传** 或 **重新开始**。
+- **附件管理 (V2.2)**: 自动扫描 `assets/attachments`，支持多选发送，具备智能回退机制。
+- **可视化编辑 (V1.1)**: 所见即所得的邮件模板编辑器，支持变量实时预览。
+- **数据追踪**: 集成 Vercel + Redis 追踪邮件打开率。
 
 ## 📂 目录结构
 
@@ -18,7 +21,9 @@ autokol/
 ├── output/                 # ✅ [自动生成] 进度文件和结果保存位置
 ├── assets/                 # ✅ [手动管理] 资源文件夹
 │   ├── leads_form/         # ➡️ 将客户 Excel/CSV 名单放入此处
-│   └── attachments/        # ➡️ 存放需要发送的 PDF 附件
+│   └── attachments/        # ➡️ 存放 PDF 附件 (可按 B2B/B2C 子目录分类)
+├── config/
+│   └── email_settings.yaml # 📧 邮件主题、签名、模板配置文件
 ├── email-tracker/          # Vercel 追踪服务代码
 ├── src/                    # 源代码
 └── requirements.txt
@@ -29,61 +34,44 @@ autokol/
 ### 1. 环境准备
 
 ```bash
-# 克隆代码
 git clone https://github.com/geegl/autokol.git
 cd autokol
-
-# 安装依赖
 pip install -r requirements.txt
 ```
 
-### 2. 资源配置
+### 2. 配置说明
 
-1.  将客户名单 Excel/CSV 文件放入 `assets/leads_form/`。
-2.  确保 `assets/attachments/` 中包含以下附件（如不一样请修改 `src/config.py`）：
-    *   `Utopai Early Access - Creator FAQ - V2.pdf`
-    *   `One-pager-enterprise.pdf` (B2B)
-    *   `One-pager_final.pdf` (B2C)
+1.  **邮件配置**: 修改 `config/email_settings.yaml` 设置邮件主题和签名。
+2.  **客户名单**: 将 Excel/CSV 文件放入 `assets/leads_form/`。
+3.  **附件**: 将 PDF 放入 `assets/attachments/` (或 `B2B`/`B2C` 子目录)。
 
-### 3. Gmail 配置
-
-为了安全发送邮件，请使用 **App Password (应用专用密码)**：
-1.  登录 Google 账号。
-2.  开启两步验证 (2FA)。
-3.  搜索 "App Passwords"，生成一个新的密码（名称可填 Autokol）。
-4.  保存这个 16 位密码。
-
-### 4. 启动应用
+### 3. 启动应用
 
 ```bash
 streamlit run app.py
 ```
 
-### 5. 在应用中操作
-1.  **侧边栏配置**：
-    *   填入 **硅基流动 API Key**。
-    *   填入 **Gmail 账号** 和 **应用专用密码**。
-    *   确认 **追踪 URL** (Vercel)。
-2.  **主界面操作**：
-    *   选择 B2B 或 B2C 模式。
-    *   在 "从 assets/leads_form 选择文件" 下拉框中选择你的名单。
-    *   点击 **✨ 批量生成内容**。
-    *   生成并保存完毕后，下拉预览生成的邮件内容。
+### 4. 完整工作流
+
+1.  **侧边栏配置**: 填入 API Key 和 Gmail 账号密码。
+2.  **模式选择**: 选择 B2B 企业模式或 B2C 创作者模式。
+3.  **数据加载**:
+    *   从列表选择文件或拖拽上传。
+    *   **动态映射**: 如列名不匹配，系统会提示手动映射。
+    *   **Leads 确认**: 查看有效邮箱统计，点击确认。
+    *   *(如果是未完成任务，可选择继续或重新开始)*
+4.  **内容生成**: 点击 **✨ 批量生成内容**，AI 将自动分析并填充个性化字段。
+5.  **邮件预览**:
+    *   在 "邮件模板编辑" 中修改主题或正文。
+    *   选择一行预览实际发送效果。
+6.  **批量发送**:
+    *   选择附件。
+    *   设置 **⏱️ 发送间隔** (建议 3-5s)。
     *   点击 **🚀 批量发送**。
-3.  **结果查看**：
-    *   生成的带状态文件会自动保存在 `output/autokol_progress_xxx.csv`。
-    *   在 **📊 追踪仪表盘** Tab 查看实时打开/点击数据。
 
-## 📊 邮件追踪
+## 📊 邮件追踪服务
 
-项目包含一个独立的 `email-tracker` 服务，需部署到 Vercel：
-1.  `cd email-tracker`
-2.  `vercel deploy --prod`
-3.  在 Vercel 后台配置环境变量：
-    *   `UPSTASH_REDIS_REST_URL`
-    *   `UPSTASH_REDIS_REST_TOKEN`
-4.  获取 Vercel URL (如 `https://autokol-tracker.vercel.app`) 填入 Streamlit 侧边栏。
-5.  **重置数据**：访问 `https://your-vercel-url/api/reset?key=autokol_admin_reset` 可清空所有追踪记录。
+本项目依赖 Vercel 服务进行追踪和进度云端备份。详情请见 `email-tracker/README.md`。
 
 ---
 © 2024 Utopai Studios
