@@ -56,7 +56,7 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
                 encoders.encode_base64(part)
                 part.add_header(
                     "Content-Disposition",
-                    f"attachment; filename= {file_name}",
+                    f"attachment; filename= {os.path.basename(file_name)}",
                 )
                 msg.attach(part)
             else:

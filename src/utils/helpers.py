@@ -35,7 +35,7 @@ import shutil
 
 # ===== 进度持久化（云端 + 本地双重保存）=====
 
-def save_progress(df, mode):
+def save_progress(df, mode, force_cloud=False):
     """保存进度（原子写入 + 云端备份）"""
     progress_file = MODE_CONFIG[mode]["progress_file"]
     
@@ -62,12 +62,21 @@ def save_progress(df, mode):
     except Exception as e:
         st.warning(f"本地保存失败: {e}")
     
-    # 2. 云端保存（异步，不阻塞）
-    try:
-        _save_to_cloud(df, mode)
-    except Exception as e:
-        # 云端保存失败不影响主流程
-        pass
+    
+    # 2. 云端保存（异步/限流）
+    # 只有当 force_cloud=True 或 距离上次同步超过 30 秒时才同步
+    import time
+    last_sync_key = f'last_sync_{mode}'
+    last_sync_time = st.session_state.get(last_sync_key, 0)
+    current_time = time.time()
+    
+    if force_cloud or (current_time - last_sync_time > 30):
+        try:
+            _save_to_cloud(df, mode)
+            st.session_state[last_sync_key] = current_time
+        except Exception as e:
+            # 云端保存失败不影响主流程
+            pass
 
 def _get_progress_api_key():
     """获取 Progress API Key"""
