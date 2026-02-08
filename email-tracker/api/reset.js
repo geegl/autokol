@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
 
     const { key } = req.query;
 
-    // 安全检查 (你可以修改这个 key)
+    // 安全检查
     if (key !== 'autokol_admin_reset') {
         return res.status(401).json({ error: 'Unauthorized: Invalid key' });
     }
@@ -26,12 +26,13 @@ module.exports = async (req, res) => {
     });
 
     try {
-        // 数据存储在 'tracking_data' 这个 key 里
-        await redis.del('tracking_data');
+        // 删除新旧两种格式的数据
+        await redis.del('tracking_data');     // 旧格式
+        await redis.del('tracking_data_v2');  // 新格式
 
         return res.status(200).json({
             success: true,
-            message: 'Target neutralized. Tracking data has been wiped from Redis.'
+            message: 'All tracking data (v1 and v2) has been wiped.'
         });
     } catch (error) {
         return res.status(500).json({ error: error.message });

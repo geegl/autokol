@@ -2,6 +2,7 @@ import streamlit as st
 from src.ui.sidebar import render_sidebar
 from src.ui.dashboard import render_tracking_dashboard
 from src.ui.mode_handler import render_mode_ui
+from src.ui.history_tab import render_send_history
 
 # --- 页面配置 ---
 st.set_page_config(page_title="Utopai Cold Email Engine", layout="wide")
@@ -13,7 +14,12 @@ sidebar_config = render_sidebar()
 
 # --- 主界面 ---
 # 使用 Tabs 分隔功能
-tab_b2b, tab_b2c, tab_tracking = st.tabs(["🏢 B2B 企业模式", "🎨 B2C 创作者模式", "📊 追踪仪表盘"])
+tab_b2b, tab_b2c, tab_tracking, tab_history = st.tabs([
+    "🏢 B2B 企业模式", 
+    "🎨 B2C 创作者模式", 
+    "📊 追踪仪表盘",
+    "📨 发送记录"
+])
 
 # --- B2B 模式 ---
 with tab_b2b:
@@ -27,6 +33,10 @@ with tab_b2c:
 with tab_tracking:
     render_tracking_dashboard(sidebar_config.get('tracking_url'))
 
+# --- 发送记录 ---
+with tab_history:
+    render_send_history()
+
 # 页脚说明
 st.divider()
 st.markdown("""
@@ -39,5 +49,7 @@ st.markdown("""
 - 附件: Utopai Early Access - Creator FAQ - V2.pdf, One-pager_final.pdf
 - 如果 Unnamed:10 列有预生成的英文内容，将自动解析使用
 
-**追踪仪表盘** - 查看邮件打开率和点击率
+**追踪仪表盘** - 查看邮件打开率和点击率 (按收件人聚合)
+
+**发送记录** - 查看今日和历史发送记录
 """)

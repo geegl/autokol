@@ -1,4 +1,4 @@
-// 查询追踪统计数据 - 友好格式
+// 查询追踪统计数据 - 按收件人聚合
 const { Redis } = require('@upstash/redis');
 
 let redis = null;
@@ -13,39 +13,68 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
     }
 }
 
-let memoryStore = { opens: {}, clicks: {} };
-
 async function loadData() {
     if (redis) {
         try {
-            const data = await redis.get('tracking_data');
-            return data || { opens: {}, clicks: {} };
+            // 尝试加载新格式数据
+            const data = await redis.get('tracking_data_v2');
+            if (data) return { version: 'v2', data };
+
+            // 回退到旧格式（只读）
+            const oldData = await redis.get('tracking_data');
+            if (oldData) return { version: 'v1', data: oldData };
         } catch (e) {
             console.error('Redis load error:', e);
         }
     }
-    return memoryStore;
+    return { version: 'v2', data: { contacts: {} } };
 }
 
-// 解析 email_id: 格式为 "mode_idx_timestamp_recipientEmail_recipientName"
-function parseEmailId(emailId) {
-    const parts = emailId.split('_');
-    if (parts.length >= 5) {
-        return {
-            mode: parts[0],
-            index: parts[1],
-            timestamp: parts[2],
-            email: parts[3] || 'unknown',
-            name: parts.slice(4).join('_') || 'unknown'
-        };
+// 将旧格式数据转换为新格式的展示
+function convertOldToNew(oldData) {
+    const contacts = {};
+
+    // 解析旧的 opens
+    for (const [emailId, events] of Object.entries(oldData.opens || {})) {
+        const parts = emailId.split('_');
+        if (parts.length >= 5) {
+            const emailPart = parts[3] || '';
+            const recipientEmail = emailPart.replace('-at-', '@').replace(/-/g, '.');
+            const recipientName = parts.slice(4).join('_') || 'Unknown';
+
+            if (!contacts[recipientEmail]) {
+                contacts[recipientEmail] = {
+                    name: recipientName,
+                    total_opens: 0,
+                    total_clicks: 0,
+                    emails: {}
+                };
+            }
+            contacts[recipientEmail].total_opens += events.length;
+        }
     }
-    return {
-        mode: parts[0] || 'unknown',
-        index: parts[1] || '0',
-        timestamp: parts[2] || '0',
-        email: 'unknown',
-        name: 'unknown'
-    };
+
+    // 解析旧的 clicks
+    for (const [emailId, events] of Object.entries(oldData.clicks || {})) {
+        const parts = emailId.split('_');
+        if (parts.length >= 5) {
+            const emailPart = parts[3] || '';
+            const recipientEmail = emailPart.replace('-at-', '@').replace(/-/g, '.');
+            const recipientName = parts.slice(4).join('_') || 'Unknown';
+
+            if (!contacts[recipientEmail]) {
+                contacts[recipientEmail] = {
+                    name: recipientName,
+                    total_opens: 0,
+                    total_clicks: 0,
+                    emails: {}
+                };
+            }
+            contacts[recipientEmail].total_clicks += events.length;
+        }
+    }
+
+    return { contacts };
 }
 
 module.exports = async (req, res) => {
@@ -57,115 +86,67 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
-    let data_source = 'memory (no persistence)';
-    let data = { opens: {}, clicks: {} };
+    const result = await loadData();
+    let data = result.data;
 
-    try {
-        if (redis) {
-            data_source = 'redis';
-            // 尝试从 Redis 加载
-            const redisData = await redis.get('tracking_data');
-            if (redisData) {
-                data = redisData;
-            }
-        } else {
-            data = memoryStore;
-        }
-    } catch (err) {
-        console.error('Data load error:', err);
-        data_source = `error: ${err.message}`;
+    // 如果是旧格式，转换展示
+    if (result.version === 'v1') {
+        data = convertOldToNew(data);
     }
 
-    const { id, format } = req.query;
+    const { email, format } = req.query;
 
-    // 查询特定邮件的追踪数据
-    if (id) {
-        const parsed = parseEmailId(id);
+    // 查询特定收件人
+    if (email && data.contacts[email]) {
         return res.json({
-            email_id: id,
-            recipient_email: parsed.email,
-            recipient_name: parsed.name,
-            opens: data.opens[id] || [],
-            clicks: data.clicks[id] || [],
-            open_count: (data.opens[id] || []).length,
-            click_count: (data.clicks[id] || []).length,
-            has_opened: (data.opens[id] || []).length > 0,
-            has_clicked: (data.clicks[id] || []).length > 0
+            email: email,
+            ...data.contacts[email]
         });
     }
 
-    // 友好格式输出
+    // 友好格式输出 - 按收件人列表
     if (format === 'friendly') {
-        const allRecipients = new Set([
-            ...Object.keys(data.opens),
-            ...Object.keys(data.clicks)
-        ]);
+        const recipients = Object.entries(data.contacts || {}).map(([email, info]) => ({
+            email: email,
+            name: info.name,
+            total_opens: info.total_opens || 0,
+            total_clicks: info.total_clicks || 0,
+            first_contact: info.first_contact || null,
+            last_activity: info.last_activity || null,
+            opened: (info.total_opens || 0) > 0,
+            clicked: (info.total_clicks || 0) > 0,
+            emails_count: Object.keys(info.emails || {}).length
+        }));
 
-        const recipients = Array.from(allRecipients).map(emailId => {
-            const parsed = parseEmailId(emailId);
-            const opens = data.opens[emailId] || [];
-            const clicks = data.clicks[emailId] || [];
-
-            return {
-                email_id: emailId,
-                recipient_email: parsed.email,
-                recipient_name: parsed.name,
-                opened: opens.length > 0,
-                clicked: clicks.length > 0,
-                open_count: opens.length,
-                click_count: clicks.length,
-                first_open: opens.length > 0 ? opens[0].timestamp : null,
-                first_click: clicks.length > 0 ? clicks[0].timestamp : null
-            };
-        });
-
+        // 按最后活动时间排序
         recipients.sort((a, b) => {
-            if (a.opened !== b.opened) return b.opened - a.opened;
-            if (a.clicked !== b.clicked) return b.clicked - a.clicked;
-            return 0;
+            if (!a.last_activity) return 1;
+            if (!b.last_activity) return -1;
+            return new Date(b.last_activity) - new Date(a.last_activity);
         });
+
+        const totalOpens = recipients.reduce((sum, r) => sum + r.total_opens, 0);
+        const totalClicks = recipients.reduce((sum, r) => sum + r.total_clicks, 0);
+        const openedCount = recipients.filter(r => r.opened).length;
+        const clickedCount = recipients.filter(r => r.clicked).length;
 
         return res.json({
-            total_tracked: recipients.length,
-            opened_count: recipients.filter(r => r.opened).length,
-            clicked_count: recipients.filter(r => r.clicked).length,
+            total_contacts: recipients.length,
+            opened_count: openedCount,
+            clicked_count: clickedCount,
+            total_opens: totalOpens,
+            total_clicks: totalClicks,
+            open_rate: recipients.length > 0 ? ((openedCount / recipients.length) * 100).toFixed(1) + '%' : '0%',
             recipients: recipients,
-            storage: data_source
+            storage: 'redis',
+            data_version: result.version
         });
     }
 
-    // 原始汇总统计
-    const summary = {
-        total_emails_opened: Object.keys(data.opens).length,
-        total_opens: Object.values(data.opens).reduce((sum, arr) => sum + arr.length, 0),
-        total_emails_clicked: Object.keys(data.clicks).length,
-        total_clicks: Object.values(data.clicks).reduce((sum, arr) => sum + arr.length, 0),
-        storage: data_source,
-        recent_opens: Object.entries(data.opens)
-            .flatMap(([id, events]) => {
-                const parsed = parseEmailId(id);
-                return events.map(e => ({
-                    email_id: id,
-                    recipient_email: parsed.email,
-                    recipient_name: parsed.name,
-                    ...e
-                }));
-            })
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 20),
-        recent_clicks: Object.entries(data.clicks)
-            .flatMap(([id, events]) => {
-                const parsed = parseEmailId(id);
-                return events.map(e => ({
-                    email_id: id,
-                    recipient_email: parsed.email,
-                    recipient_name: parsed.name,
-                    ...e
-                }));
-            })
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 20)
-    };
-
-    res.json(summary);
+    // 原始数据
+    res.json({
+        contacts: data.contacts,
+        storage: 'redis',
+        data_version: result.version
+    });
 };

@@ -7,8 +7,35 @@ from email import encoders
 import streamlit as st
 from src.config import ATTACHMENTS_DIR
 
+# 错误类型分类
+class EmailError:
+    AUTH_ERROR = "AuthError"           # 认证失败（密码错误）
+    NETWORK_ERROR = "NetworkError"     # 网络连接问题
+    INVALID_EMAIL = "InvalidEmail"     # 邮箱地址无效
+    RATE_LIMITED = "RateLimited"       # 发送频率限制
+    UNKNOWN = "UnknownError"           # 其他未知错误
+
+def classify_error(error_message):
+    """根据错误信息分类错误类型"""
+    msg = str(error_message).lower()
+    
+    if 'authentication' in msg or 'username and password not accepted' in msg or 'invalid credentials' in msg:
+        return EmailError.AUTH_ERROR
+    elif 'rate' in msg or 'limit' in msg or 'too many' in msg or 'quota' in msg:
+        return EmailError.RATE_LIMITED
+    elif 'recipient' in msg or 'invalid address' in msg or 'mailbox' in msg or 'does not exist' in msg:
+        return EmailError.INVALID_EMAIL
+    elif 'connection' in msg or 'timeout' in msg or 'network' in msg or 'refused' in msg:
+        return EmailError.NETWORK_ERROR
+    else:
+        return EmailError.UNKNOWN
+
 def send_email_gmail(to_email, subject, body_text, body_html, sender_email, sender_password, sender_name, mode, attachments_list):
-    """通过 Gmail SMTP 发送邮件 (带 PDF 附件 + 追踪像素)"""
+    """
+    通过 Gmail SMTP 发送邮件 (带 PDF 附件 + 追踪像素)
+    
+    返回: (success: bool, message: str, error_type: str|None)
+    """
     try:
         msg = MIMEMultipart('alternative')
         msg['From'] = f"{sender_name} <{sender_email}>"
@@ -39,7 +66,19 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_email, msg.as_string())
         
-        return True, "邮件发送成功"
+        return True, "邮件发送成功", None
 
+    except smtplib.SMTPAuthenticationError as e:
+        return False, f"❌ 认证失败: {str(e)}", EmailError.AUTH_ERROR
+    except smtplib.SMTPRecipientsRefused as e:
+        return False, f"❌ 收件人无效: {str(e)}", EmailError.INVALID_EMAIL
+    except smtplib.SMTPException as e:
+        error_type = classify_error(str(e))
+        return False, f"❌ SMTP错误: {str(e)}", error_type
+    except ConnectionError as e:
+        return False, f"❌ 网络连接失败: {str(e)}", EmailError.NETWORK_ERROR
+    except TimeoutError as e:
+        return False, f"❌ 连接超时: {str(e)}", EmailError.NETWORK_ERROR
     except Exception as e:
-        return False, f"❌ {str(e)}"
+        error_type = classify_error(str(e))
+        return False, f"❌ {str(e)}", error_type

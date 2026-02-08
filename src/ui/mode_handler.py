@@ -11,6 +11,7 @@ from src.utils.templates import EMAIL_SUBJECT, EMAIL_BODY_TEMPLATE, EMAIL_BODY_H
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
+from src.services.send_history import save_send_record
 
 def render_mode_ui(mode, sidebar_config):
     """渲染主要模式 UI (B2B 或 B2C)"""
@@ -258,10 +259,20 @@ def render_mode_ui(mode, sidebar_config):
                                 tracking_pixel=final_pixel
                             )
                             
-                            success, msg = send_email_gmail(
+                            success, msg, error_type = send_email_gmail(
                                 test_email, EMAIL_SUBJECT, email_body_preview, final_html,
                                 sidebar_config['email_user'], sidebar_config['email_pass'],
                                 sidebar_config['sender_name'], mode, config['attachments']
+                            )
+                            
+                            # 保存发送记录
+                            save_send_record(
+                                recipient_email=test_email,
+                                recipient_name=f"Test_{english_name}",
+                                subject=EMAIL_SUBJECT,
+                                status="success" if success else "failed",
+                                error_type=error_type,
+                                mode=mode
                             )
                             
                             if success:
@@ -325,10 +336,20 @@ def render_mode_ui(mode, sidebar_config):
                     )
                     
                     # 发送 (Only Gmail supported now)
-                    ok, msg = send_email_gmail(
+                    ok, msg, error_type = send_email_gmail(
                         dest_email, EMAIL_SUBJECT, body_txt, body_html,
                         sidebar_config['email_user'], sidebar_config['email_pass'],
                         sidebar_config['sender_name'], mode, config['attachments']
+                    )
+                    
+                    # 保存发送记录
+                    save_send_record(
+                        recipient_email=dest_email,
+                        recipient_name=dest_name,
+                        subject=EMAIL_SUBJECT,
+                        status="success" if ok else "failed",
+                        error_type=error_type,
+                        mode=mode
                     )
                     
                     if ok:

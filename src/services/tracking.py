@@ -13,13 +13,16 @@ def generate_email_id(mode, idx, recipient_email, recipient_name):
     return f"{mode}_{idx}_{timestamp}_{clean_email}_{clean_name}"
 
 def generate_tracking_pixel(email_id, tracking_url=None):
-    """生成追踪像素 HTML"""
+    """生成追踪像素 HTML (带防缓存参数)"""
     if not tracking_url:
         return ""
     # 确保 URL 不以斜杠结尾
     if tracking_url.endswith('/'):
         tracking_url = tracking_url[:-1]
-    return f'<img src="{tracking_url}/api/open/{email_id}" width="1" height="1" style="display:none" alt="">'
+    # 加入时间戳防止浏览器缓存
+    cache_buster = int(datetime.now().timestamp() * 1000)
+    return f'<img src="{tracking_url}/api/open/{email_id}?t={cache_buster}" width="1" height="1" style="display:none" alt="">'
+
 
 def generate_tracked_link(email_id, original_url, tracking_url=None):
     """生成追踪链接"""
