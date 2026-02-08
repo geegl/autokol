@@ -79,9 +79,21 @@ def render_mode_ui(mode, sidebar_config):
         # 尝试加载 output 目录下的进度文件
         progress_df = load_progress(mode)
         
-        if progress_df is not None and len(progress_df) == len(df):
-            st.info(f"📂 检测到上次未完成的进度 ({len(progress_df)} 行)，已自动加载。")
-            df = progress_df
+        if progress_df is not None:
+            if len(progress_df) == len(df):
+                st.info(f"📂 检测到上次未完成的进度 ({len(progress_df)} 行)，已自动加载。")
+                df = progress_df
+            else:
+                st.warning(f"⚠️ 检测到旧进度文件 ({len(progress_df)} 行)，但与当前文件 ({len(df)} 行) 不匹配，已忽略并重新开始。")
+                # 初始化新列
+                if 'AI_Project_Title' not in df.columns:
+                    df['AI_Project_Title'] = ""
+                if 'AI_Technical_Detail' not in df.columns:
+                    df['AI_Technical_Detail'] = ""
+                if 'Email_Status' not in df.columns:
+                    df['Email_Status'] = "待生成"
+                if 'Content_Source' not in df.columns:
+                    df['Content_Source'] = ""
         else:
             # 初始化新列
             if 'AI_Project_Title' not in df.columns:
