@@ -83,6 +83,7 @@ streamlit run app.py
     *   `UPSTASH_REDIS_REST_URL`
     *   `UPSTASH_REDIS_REST_TOKEN`
 4.  获取 Vercel URL (如 `https://autokol-tracker.vercel.app`) 填入 Streamlit 侧边栏。
+5.  **重置数据**：访问 `https://your-vercel-url/api/reset?key=autokol_admin_reset` 可清空所有追踪记录。
 
 ---
 © 2024 Utopai Studios
