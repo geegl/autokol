@@ -612,10 +612,10 @@ def render_mode_ui(mode, sidebar_config):
             # --- 发送速率控制 (V2.0) ---
             send_interval = st.slider(
                 "⏱️ 发送间隔 (秒)", 
-                min_value=1, 
-                max_value=10, 
-                value=2,
-                help="设置每封邮件发送后的等待时间，建议至少 2 秒以避免被识别为垃圾邮件"
+                min_value=2, 
+                max_value=30, 
+                value=3,
+                help="设置每封邮件发送后的等待时间。建议保持在 3-5 秒或更高，以避免触发 Gmail 的反垃圾邮件保护。"
             )
 
             st.divider()
