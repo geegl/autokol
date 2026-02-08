@@ -13,6 +13,38 @@ from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
 from src.services.send_history import save_send_record, get_today_stats
 
+
+def text_to_html(text, calendly_link="", tracking_pixel=""):
+    """将纯文本模板转换为 HTML 格式"""
+    # 转义HTML特殊字符
+    import html as html_lib
+    text = html_lib.escape(text)
+    
+    # 将换行符转为 <br> 或 <p> 标签
+    paragraphs = text.split('\n\n')
+    html_parts = []
+    for p in paragraphs:
+        p = p.replace('\n', '<br>')
+        html_parts.append(f'<p>{p}</p>')
+    
+    body_content = '\n'.join(html_parts)
+    
+    # 如果有 calendly 链接，替换为可点击链接
+    if calendly_link:
+        body_content = body_content.replace(
+            'https://calendly.com/cecilia-utopaistudios/30min',
+            f'<a href="{calendly_link}">Book a meeting</a>'
+        )
+    
+    return f'''<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+{body_content}
+{tracking_pixel}
+</body>
+</html>'''
+
 def render_mode_ui(mode, sidebar_config):
     """渲染主要模式 UI (B2B 或 B2C)"""
     config = MODE_CONFIG[mode]
@@ -191,7 +223,49 @@ def render_mode_ui(mode, sidebar_config):
 
         st.divider()
 
-        # --- 5. 邮件预览与发送 ---
+        # --- 5. 邮件模板编辑器 ---
+        st.subheader("✏️ 邮件模板编辑")
+        
+        # 初始化 session_state 用于存储模板
+        if f'email_subject_{mode}' not in st.session_state:
+            st.session_state[f'email_subject_{mode}'] = EMAIL_SUBJECT
+        if f'email_body_{mode}' not in st.session_state:
+            st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
+        
+        with st.expander("📝 编辑邮件模板", expanded=False):
+            st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`")
+            
+            # 邮件主题
+            new_subject = st.text_input(
+                "邮件主题 (Subject)", 
+                value=st.session_state[f'email_subject_{mode}'],
+                key=f"input_subject_{mode}"
+            )
+            if new_subject != st.session_state[f'email_subject_{mode}']:
+                st.session_state[f'email_subject_{mode}'] = new_subject
+            
+            # 邮件正文
+            new_body = st.text_area(
+                "邮件正文模板 (纯文本)", 
+                value=st.session_state[f'email_body_{mode}'],
+                height=400,
+                key=f"input_body_{mode}"
+            )
+            if new_body != st.session_state[f'email_body_{mode}']:
+                st.session_state[f'email_body_{mode}'] = new_body
+            
+            col_reset, col_info = st.columns([1, 3])
+            with col_reset:
+                if st.button("🔄 重置为默认模板", key=f"btn_reset_template_{mode}"):
+                    st.session_state[f'email_subject_{mode}'] = EMAIL_SUBJECT
+                    st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
+                    st.rerun()
+            with col_info:
+                st.caption("💡 模板修改仅在当前会话有效，刷新页面后会重置")
+
+        st.divider()
+
+        # --- 6. 邮件预览与发送 ---
         st.subheader("📧 邮件发送中心 (Gmail SMTP)")
         
         col_idx, col_preview = st.columns([1, 2])
@@ -227,7 +301,9 @@ def render_mode_ui(mode, sidebar_config):
             tracking_pixel = generate_tracking_pixel(preview_email_id, None)  # 返回空字符串
             tracked_calendly = "https://calendly.com/cecilia-utopaistudios/30min"  # 预览时用原始链接
             
-            email_body_preview = EMAIL_BODY_TEMPLATE.format(
+            # 使用用户编辑的模板
+            user_template = st.session_state.get(f'email_body_{mode}', EMAIL_BODY_TEMPLATE)
+            email_body_preview = user_template.format(
                 creator_name=english_name,
                 sender_name=sidebar_config['sender_name'],
                 project_title=current_row['AI_Project_Title'],
@@ -235,13 +311,10 @@ def render_mode_ui(mode, sidebar_config):
                 sender_title=sidebar_config['sender_title']
             )
             
-            email_html_preview = EMAIL_BODY_HTML_TEMPLATE.format(
-                creator_name=english_name,
-                sender_name=sidebar_config['sender_name'],
-                project_title=current_row['AI_Project_Title'],
-                technical_detail=current_row['AI_Technical_Detail'],
-                sender_title=sidebar_config['sender_title'],
-                calendly_link=tracked_calendly,
+            # 使用 text_to_html 生成 HTML
+            email_html_preview = text_to_html(
+                email_body_preview, 
+                calendly_link=tracked_calendly, 
                 tracking_pixel=tracking_pixel if sidebar_config.get('tracking_url') else "<!-- Tracking Pixel Placeholder -->"
             )
             
@@ -272,18 +345,17 @@ def render_mode_ui(mode, sidebar_config):
                             final_pixel = generate_tracking_pixel(test_id, sidebar_config.get('tracking_url'))
                             final_link = generate_tracked_link(test_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
                             
-                            final_html = EMAIL_BODY_HTML_TEMPLATE.format(
-                                creator_name=english_name,
-                                sender_name=sidebar_config['sender_name'],
-                                project_title=current_row['AI_Project_Title'],
-                                technical_detail=current_row['AI_Technical_Detail'],
-                                sender_title=sidebar_config['sender_title'],
+                            final_html = text_to_html(
+                                email_body_preview,
                                 calendly_link=final_link,
                                 tracking_pixel=final_pixel
                             )
                             
+                            # 使用用户编辑的主题
+                            user_subject = st.session_state.get(f'email_subject_{mode}', EMAIL_SUBJECT)
+                            
                             success, msg, error_type = send_email_gmail(
-                                test_email, EMAIL_SUBJECT, email_body_preview, final_html,
+                                test_email, user_subject, email_body_preview, final_html,
                                 sidebar_config['email_user'], sidebar_config['email_pass'],
                                 sidebar_config['sender_name'], mode, config['attachments']
                             )
@@ -292,7 +364,7 @@ def render_mode_ui(mode, sidebar_config):
                             save_send_record(
                                 recipient_email=test_email,
                                 recipient_name=f"Test_{english_name}",
-                                subject=EMAIL_SUBJECT,
+                                subject=user_subject,
                                 status="success" if success else "failed",
                                 error_type=error_type,
                                 mode=mode
@@ -411,7 +483,9 @@ def render_mode_ui(mode, sidebar_config):
                         real_pixel = generate_tracking_pixel(real_id, sidebar_config.get('tracking_url'))
                         real_link = generate_tracked_link(real_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
                         
-                        body_txt = EMAIL_BODY_TEMPLATE.format(
+                        # 使用用户编辑的模板
+                        user_template = st.session_state.get(f'email_body_{mode}', EMAIL_BODY_TEMPLATE)
+                        body_txt = user_template.format(
                             creator_name=dest_name,
                             sender_name=sidebar_config['sender_name'],
                             project_title=row['AI_Project_Title'],
@@ -419,18 +493,13 @@ def render_mode_ui(mode, sidebar_config):
                             sender_title=sidebar_config['sender_title']
                         )
                         
-                        body_html = EMAIL_BODY_HTML_TEMPLATE.format(
-                            creator_name=dest_name,
-                            sender_name=sidebar_config['sender_name'],
-                            project_title=row['AI_Project_Title'],
-                            technical_detail=row['AI_Technical_Detail'],
-                            sender_title=sidebar_config['sender_title'],
-                            calendly_link=real_link,
-                            tracking_pixel=real_pixel
-                        )
+                        body_html = text_to_html(\n                            body_txt,\n                            calendly_link=real_link,\n                            tracking_pixel=real_pixel\n                        )
+                        
+                        # 使用用户编辑的主题
+                        user_subject = st.session_state.get(f'email_subject_{mode}', EMAIL_SUBJECT)
                         
                         ok, msg, error_type = send_email_gmail(
-                            dest_email, EMAIL_SUBJECT, body_txt, body_html,
+                            dest_email, user_subject, body_txt, body_html,
                             sidebar_config['email_user'], sidebar_config['email_pass'],
                             sidebar_config['sender_name'], mode, config['attachments']
                         )
@@ -438,7 +507,7 @@ def render_mode_ui(mode, sidebar_config):
                         save_send_record(
                             recipient_email=dest_email,
                             recipient_name=dest_name,
-                            subject=EMAIL_SUBJECT,
+                            subject=user_subject,
                             status="success" if ok else "failed",
                             error_type=error_type,
                             mode=mode
