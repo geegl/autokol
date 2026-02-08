@@ -1,0 +1,12 @@
+{
+    "name": "email-tracker",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "vercel dev",
+        "build": "echo 'No build step needed for Vercel Functions'"
+    },
+    "dependencies": {
+        "@vercel/kv": "^2.0.0"
+    }
+}
