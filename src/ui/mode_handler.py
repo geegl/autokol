@@ -99,16 +99,89 @@ def render_mode_ui(mode, sidebar_config):
             return
 
     if df is not None:
-        # 检查必要列
+        # --- 2. 动态列映射 (V2.0) ---
         required_cols = list(config["columns"].values())
         missing_cols = [col for col in required_cols if col not in df.columns and col != "Unnamed: 10"]
         
-        if missing_cols:
-            st.error(f"❌ 缺少必要列: {', '.join(missing_cols)}")
-            st.info(f"请确保 Excel 包含以下列名: {', '.join(required_cols)}")
-            return
+        # 初始化映射状态
+        if f'col_mapping_{mode}' not in st.session_state:
+            st.session_state[f'col_mapping_{mode}'] = {}
         
-        # --- 2. 进度管理 ---
+        if missing_cols:
+            st.warning(f"⚠️ 检测到列名不匹配，请手动映射")
+            with st.expander("🔧 列名映射配置", expanded=True):
+                st.info(f"系统需要在你的表格中找到以下列: {', '.join(required_cols)}")
+                
+                all_columns = df.columns.tolist()
+                mapping_confirmed = True
+                
+                mapped_cols = st.session_state[f'col_mapping_{mode}']
+                
+                for req_col in required_cols:
+                    # 尝试自动匹配
+                    default_idx = 0
+                    if req_col in all_columns:
+                        default_idx = all_columns.index(req_col)
+                    elif req_col in mapped_cols and mapped_cols[req_col] in all_columns:
+                        default_idx = all_columns.index(mapped_cols[req_col])
+                    
+                    selected_col = st.selectbox(
+                        f"系统字段: **{req_col}** 对应你表格中的:", 
+                        all_columns,
+                        index=default_idx,
+                        key=f"map_{mode}_{req_col}"
+                    )
+                    mapped_cols[req_col] = selected_col
+                
+                if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}"):
+                    st.session_state[f'col_mapping_confirmed_{mode}'] = True
+                    st.rerun()
+                
+                if not st.session_state.get(f'col_mapping_confirmed_{mode}'):
+                    st.stop()
+        
+        # 应用映射
+        if st.session_state.get(f'col_mapping_confirmed_{mode}') or not missing_cols:
+            # 如果有映射配置，重命名列
+            mapping = st.session_state.get(f'col_mapping_{mode}')
+            if mapping:
+                # 反转映射: 用户列 -> 系统列
+                rename_dict = {user_col: sys_col for sys_col, user_col in mapping.items()}
+                # 只重命名存在的列
+                valid_rename = {k: v for k, v in rename_dict.items() if k in df.columns}
+                if valid_rename:
+                    df = df.rename(columns=valid_rename)
+
+        # --- 3. 附件选择 (V2.0) ---
+        # 扫描 assets/attachments/{mode} 目录
+        st.subheader("📎 附件管理")
+        attachments_dir = os.path.join(os.path.dirname(config['attachments'][0])) if config['attachments'] else None
+        # 如果是绝对路径或不存在，尝试构建标准路径
+        from src.config import ASSETS_DIR
+        std_attach_dir = os.path.join(ASSETS_DIR, "attachments", mode)
+        
+        if not os.path.exists(std_attach_dir):
+            os.makedirs(std_attach_dir, exist_ok=True)
+            
+        # 获取可用附件
+        available_files = [f for f in os.listdir(std_attach_dir) if not f.startswith('.')]
+        # 默认选中配置中的附件 (如果存在)
+        default_files = [os.path.basename(f) for f in config['attachments']]
+        default_selection = [f for f in default_files if f in available_files]
+        
+        selected_attachments = st.multiselect(
+            "选择本次发送的附件:",
+            options=available_files,
+            default=default_selection,
+            key=f"attach_select_{mode}"
+        )
+        
+        #构建完整路径
+        final_attachments = [os.path.join(std_attach_dir, f) for f in selected_attachments]
+        if not final_attachments:
+             st.warning("⚠️ 未选择任何附件，邮件将仅包含正文")
+             
+        # --- 4. 进度管理 ---
         # 尝试加载 output 目录下的进度文件
         progress_df = load_progress(mode)
         
@@ -397,6 +470,15 @@ def render_mode_ui(mode, sidebar_config):
             elif remaining <= 50:
                 st.warning(f"⚠️ 今日剩余额度仅 {remaining} 封，请注意控制发送量！")
             
+            # --- 发送速率控制 (V2.0) ---
+            send_interval = st.slider(
+                "⏱️ 发送间隔 (秒)", 
+                min_value=1, 
+                max_value=10, 
+                value=2,
+                help="设置每封邮件发送后的等待时间，建议至少 2 秒以避免被识别为垃圾邮件"
+            )
+
             st.divider()
             
             # 筛选出待发送的行
@@ -505,7 +587,7 @@ def render_mode_ui(mode, sidebar_config):
                         ok, msg, error_type = send_email_gmail(
                             dest_email, user_subject, body_txt, body_html,
                             sidebar_config['email_user'], sidebar_config['email_pass'],
-                            sidebar_config['sender_name'], mode, config['attachments']
+                            sidebar_config['sender_name'], mode, final_attachments
                         )
                         
                         save_send_record(
@@ -531,7 +613,7 @@ def render_mode_ui(mode, sidebar_config):
                     if remaining_count > 0:
                         st.info(f"📤 队列剩余: {remaining_count} 封")
                     
-                    time.sleep(1)  # 避免速率限制
+                    time.sleep(send_interval)  # 使用用户设置的间隔
                     st.rerun()
             
             # 暂停状态提示
