@@ -11,8 +11,9 @@ module.exports = async (req, res) => {
 
     const { key } = req.query;
 
-    // 安全检查
-    if (key !== 'autokol_admin_reset') {
+    // 安全检查 - 使用环境变量
+    const expectedKey = process.env.ADMIN_RESET_KEY || 'autokol_admin_reset';  // 默认值仅用于开发
+    if (key !== expectedKey) {
         return res.status(401).json({ error: 'Unauthorized: Invalid key' });
     }
 
