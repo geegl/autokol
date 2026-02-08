@@ -161,7 +161,9 @@ with st.sidebar:
     sender_title = st.text_input("Your Title", value="Director of Creative Partnerships")
     
     st.subheader("4. 邮件追踪 (可选)")
-    tracking_url = st.text_input("追踪服务 URL", placeholder="https://your-tracker.vercel.app", help="部署 email-tracker 后填入")
+    tracking_url = st.text_input("追踪服务 URL (Vercel)", value="https://autokol.vercel.app", help="部署在 Vercel 的追踪服务地址")
+    if tracking_url and tracking_url.endswith('/'):
+        tracking_url = tracking_url[:-1]
     if tracking_url:
         st.success("✅ 追踪已启用 - 将自动记录打开率和点击率")
     else:
