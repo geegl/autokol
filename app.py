@@ -198,6 +198,15 @@ def extract_english_name(name_str):
 TRACKING_BASE_URL = "https://autokol.vercel.app"
 CALENDLY_URL = "https://calendly.com/cecilia-utopaistudios/30min"
 
+def generate_email_id(mode, idx, recipient_email, recipient_name):
+    """生成包含收件人信息的邮件追踪 ID"""
+    # 清理名字中的特殊字符
+    import hashlib
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(recipient_name))[:20]
+    clean_email = str(recipient_email).replace('@', '-at-').replace('.', '-')[:30]
+    timestamp = int(datetime.now().timestamp())
+    return f"{mode}_{idx}_{timestamp}_{clean_email}_{clean_name}"
+
 def generate_tracking_pixel(email_id, tracking_url=None):
     """生成追踪像素 HTML"""
     if not tracking_url:
@@ -535,10 +544,10 @@ def send_email(to_email, subject, body_text, body_html, user, password, sender_n
 
 
 # =============================================
-# 主界面 - B2B/B2C 标签页
+# 主界面 - B2B/B2C/追踪 标签页
 # =============================================
 
-tab_b2b, tab_b2c = st.tabs(["🏢 B2B 企业客户", "🎨 B2C 创作者"])
+tab_b2b, tab_b2c, tab_tracking = st.tabs(["🏢 B2B 企业客户", "🎨 B2C 创作者", "📊 追踪仪表盘"])
 
 def render_mode_ui(mode):
     """渲染特定模式的 UI"""
@@ -754,8 +763,10 @@ def render_mode_ui(mode):
             
             if st.button("🧪 发送测试邮件", disabled=not (email_user and email_pass), key=f"test_send_{mode}"):
                 test_row = df.iloc[test_idx]
-                # 生成唯一邮件 ID 用于追踪
-                email_id = f"{mode}_{test_idx}_{int(datetime.now().timestamp())}"
+                # 生成唯一邮件 ID 用于追踪（包含收件人信息）
+                recipient_email = test_row.get('Email', test_row.get('Full_Email', 'unknown'))
+                recipient_name = test_row.get(cols['contact_person'], 'unknown')
+                email_id = generate_email_id(mode, test_idx, recipient_email, recipient_name)
                 body_text = render_full_email(test_row, sender_name, sender_title, mode)
                 body_html = EMAIL_BODY_HTML_TEMPLATE.format(
                     creator_name=extract_english_name(test_row.get(cols['contact_person'], 'Creator')),
@@ -804,8 +815,9 @@ def render_mode_ui(mode):
                     for i, (idx, row) in enumerate(to_send.iterrows()):
                         target_email = row.get('Email')
                         
-                        # 生成唯一邮件 ID 用于追踪
-                        email_id = f"{mode}_{idx}_{int(datetime.now().timestamp())}"
+                        # 生成唯一邮件 ID 用于追踪（包含收件人信息）
+                        recipient_name = row.get(cols['contact_person'], 'unknown')
+                        email_id = generate_email_id(mode, idx, target_email, recipient_name)
                         body_text = render_full_email(row, sender_name, sender_title, mode)
                         body_html = EMAIL_BODY_HTML_TEMPLATE.format(
                             creator_name=extract_english_name(row.get(cols['contact_person'], 'Creator')),
@@ -848,6 +860,91 @@ with tab_b2b:
 with tab_b2c:
     render_mode_ui("B2C")
 
+# =============================================
+# 追踪仪表盘
+# =============================================
+with tab_tracking:
+    st.header("📊 邮件追踪仪表盘")
+    
+    if not tracking_url:
+        st.warning("⚠️ 请在侧边栏填入追踪服务 URL 后使用此功能")
+    else:
+        st.info(f"追踪服务: {tracking_url}")
+        
+        col_refresh, col_url = st.columns([1, 3])
+        with col_refresh:
+            refresh = st.button("🔄 刷新数据", key="refresh_tracking")
+        with col_url:
+            st.markdown(f"[📈 查看原始数据]({tracking_url}/api/stats?format=friendly)")
+        
+        if refresh or 'tracking_data' not in st.session_state:
+            try:
+                import requests
+                response = requests.get(f"{tracking_url}/api/stats?format=friendly", timeout=10)
+                if response.status_code == 200:
+                    st.session_state.tracking_data = response.json()
+                else:
+                    st.error(f"获取追踪数据失败: HTTP {response.status_code}")
+                    st.session_state.tracking_data = None
+            except Exception as e:
+                st.error(f"无法连接追踪服务: {e}")
+                st.session_state.tracking_data = None
+        
+        data = st.session_state.get('tracking_data')
+        
+        if data:
+            # 统计摘要
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📧 已追踪邮件", data.get('total_tracked', 0))
+            with col2:
+                st.metric("👁️ 已打开", data.get('opened_count', 0))
+            with col3:
+                st.metric("🔗 已点击", data.get('clicked_count', 0))
+            with col4:
+                total = data.get('total_tracked', 0)
+                opened = data.get('opened_count', 0)
+                open_rate = f"{(opened/total*100):.1f}%" if total > 0 else "0%"
+                st.metric("📈 打开率", open_rate)
+            
+            st.divider()
+            
+            recipients = data.get('recipients', [])
+            if recipients:
+                # 分类显示
+                opened_list = [r for r in recipients if r.get('opened')]
+                not_opened_list = [r for r in recipients if not r.get('opened')]
+                
+                col_opened, col_not_opened = st.columns(2)
+                
+                with col_opened:
+                    st.subheader(f"✅ 已打开 ({len(opened_list)})")
+                    if opened_list:
+                        for r in opened_list:
+                            email = r.get('recipient_email', 'unknown').replace('-at-', '@').replace('-', '.')
+                            name = r.get('recipient_name', 'unknown')
+                            clicked = "🔗" if r.get('clicked') else ""
+                            first_open = r.get('first_open', '')[:16] if r.get('first_open') else ''
+                            st.markdown(f"**{name}** {clicked}")
+                            st.caption(f"{email} | 首次打开: {first_open}")
+                    else:
+                        st.info("暂无打开记录")
+                
+                with col_not_opened:
+                    st.subheader(f"❌ 未打开 ({len(not_opened_list)})")
+                    if not_opened_list:
+                        for r in not_opened_list:
+                            email = r.get('recipient_email', 'unknown').replace('-at-', '@').replace('-', '.')
+                            name = r.get('recipient_name', 'unknown')
+                            st.markdown(f"**{name}**")
+                            st.caption(f"{email}")
+                    else:
+                        st.success("所有邮件都已打开！")
+            else:
+                st.info("📭 暂无追踪数据。发送邮件后，收件人打开/点击将自动记录。")
+        else:
+            st.info("点击「刷新数据」获取追踪统计")
+
 # 页脚说明
 st.divider()
 st.markdown("""
@@ -859,4 +956,6 @@ st.markdown("""
 **B2C 创作者** (Excel 列: Name, Contact, Specialty, Ice Breaker)
 - 附件: Utopai Early Access - Creator FAQ - V2.pdf, One-pager_final.pdf
 - 如果 Unnamed:10 列有预生成的英文内容，将自动解析使用
+
+**追踪仪表盘** - 查看邮件打开率和点击率
 """)
