@@ -3,6 +3,7 @@ from src.ui.sidebar import render_sidebar
 from src.ui.dashboard import render_tracking_dashboard
 from src.ui.mode_handler import render_mode_ui
 from src.ui.history_tab import render_send_history
+from src.ui.onboarding import render_onboarding, check_config_status
 
 # --- 页面配置 ---
 st.set_page_config(page_title="Utopai Cold Email Engine", layout="wide")
@@ -11,6 +12,13 @@ st.caption("Gmail/Resend + 硅基流动 DeepSeek-V3.2 | 自动保存进度")
 
 # --- 渲染侧边栏 ---
 sidebar_config = render_sidebar()
+
+# 检查配置状态（用于引导流程）
+check_config_status(sidebar_config)
+
+# --- 首次使用引导 ---
+if render_onboarding():
+    st.stop()  # 阻止主界面渲染，直到完成引导
 
 # --- 主界面 ---
 # 使用 Tabs 分隔功能

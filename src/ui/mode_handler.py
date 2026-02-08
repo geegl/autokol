@@ -11,7 +11,7 @@ from src.utils.templates import EMAIL_SUBJECT, EMAIL_BODY_TEMPLATE, EMAIL_BODY_H
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
-from src.services.send_history import save_send_record
+from src.services.send_history import save_send_record, get_today_stats
 
 def render_mode_ui(mode, sidebar_config):
     """渲染主要模式 UI (B2B 或 B2C)"""
@@ -281,88 +281,165 @@ def render_mode_ui(mode, sidebar_config):
                                 st.error(f"发送失败: {msg}")
 
         with col_batch:
+            # Gmail 限制预警
+            today_stats = get_today_stats()
+            today_sent = today_stats.get('today_success', 0)
+            gmail_limit = 500  # Gmail 每日限制
+            remaining = gmail_limit - today_sent
+            
+            # 显示今日发送统计
+            col_sent, col_remain = st.columns(2)
+            with col_sent:
+                st.metric("📧 今日已发送", today_sent)
+            with col_remain:
+                if remaining <= 50:
+                    st.metric("⚠️ 剩余额度", remaining, delta=None, delta_color="inverse")
+                else:
+                    st.metric("✅ 剩余额度", remaining)
+            
+            if remaining <= 0:
+                st.error("🚫 今日 Gmail 发送额度已用完！请明天再试。")
+            elif remaining <= 50:
+                st.warning(f"⚠️ 今日剩余额度仅 {remaining} 封，请注意控制发送量！")
+            
+            st.divider()
+            
             # 筛选出待发送的行
             pending_indices = df[
                 (df['AI_Project_Title'] != "") & 
                 (df['Email_Status'] != "发送成功")
             ].index.tolist()
             
-            st.write(f"待发送邮件数: **{len(pending_indices)}**")
+            # 筛选出发送失败的行
+            failed_indices = df[
+                df['Email_Status'].str.startswith("发送失败", na=False)
+            ].index.tolist()
             
-            if st.button("🚀 批量发送所有待发送邮件", key=f"btn_batch_{mode}", type="primary", disabled=len(pending_indices)==0):
+            st.write(f"待发送邮件数: **{len(pending_indices)}**")
+            if failed_indices:
+                st.write(f"发送失败待重试: **{len(failed_indices)}**")
+            
+            # 初始化发送状态
+            if f'sending_{mode}' not in st.session_state:
+                st.session_state[f'sending_{mode}'] = False
+            if f'paused_{mode}' not in st.session_state:
+                st.session_state[f'paused_{mode}'] = False
+            
+            # 按钮区域
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            
+            with btn_col1:
+                send_disabled = len(pending_indices) == 0 or remaining <= 0 or st.session_state[f'sending_{mode}']
+                if st.button("🚀 批量发送", key=f"btn_batch_{mode}", type="primary", disabled=send_disabled):
+                    st.session_state[f'sending_{mode}'] = True
+                    st.session_state[f'paused_{mode}'] = False
+                    st.session_state[f'send_queue_{mode}'] = pending_indices.copy()
+                    st.rerun()
+            
+            with btn_col2:
+                retry_disabled = len(failed_indices) == 0 or remaining <= 0 or st.session_state[f'sending_{mode}']
+                if st.button("🔄 重试失败", key=f"btn_retry_{mode}", disabled=retry_disabled):
+                    st.session_state[f'sending_{mode}'] = True
+                    st.session_state[f'paused_{mode}'] = False
+                    st.session_state[f'send_queue_{mode}'] = failed_indices.copy()
+                    st.rerun()
+            
+            with btn_col3:
+                if st.session_state[f'sending_{mode}']:
+                    if st.session_state[f'paused_{mode}']:
+                        if st.button("▶️ 继续", key=f"btn_resume_{mode}"):
+                            st.session_state[f'paused_{mode}'] = False
+                            st.rerun()
+                    else:
+                        if st.button("⏸️ 暂停", key=f"btn_pause_{mode}"):
+                            st.session_state[f'paused_{mode}'] = True
+                            st.rerun()
+            
+            # 发送逻辑
+            if st.session_state[f'sending_{mode}'] and not st.session_state[f'paused_{mode}']:
                 if not sidebar_config.get('email_user') or not sidebar_config.get('email_pass'):
                     st.error("请先配置 Gmail 发件人信息")
+                    st.session_state[f'sending_{mode}'] = False
                     st.stop()
                 
-                progress_bar = st.progress(0)
-                status_area = st.empty()
-                success_count = 0
-                fail_count = 0
-                
-                for i, idx in enumerate(pending_indices):
+                queue = st.session_state.get(f'send_queue_{mode}', [])
+                if not queue:
+                    st.session_state[f'sending_{mode}'] = False
+                    st.success("✅ 所有邮件发送完成！")
+                else:
+                    # 取出下一个要发送的
+                    idx = queue.pop(0)
+                    st.session_state[f'send_queue_{mode}'] = queue
+                    
                     row = df.loc[idx]
                     dest_email = extract_email(row.get(config['columns']['contact_info']))
                     dest_name = extract_english_name(row.get(config['columns']['client_name']))
                     
                     if not dest_email:
-                        status_area.warning(f"跳过第 {idx+1} 行: 无法提取邮箱")
+                        st.warning(f"跳过第 {idx+1} 行: 无法提取邮箱")
                         df.loc[idx, 'Email_Status'] = "邮箱无效"
                         save_progress(df, mode)
-                        continue
+                        time.sleep(0.5)
+                        st.rerun()
                     
-                    status_area.text(f"正在发送给 {dest_name} ({dest_email})...")
+                    with st.spinner(f"正在发送给 {dest_name} ({dest_email})..."):
+                        # 生成追踪内容
+                        real_id = generate_email_id(mode, idx, dest_email, dest_name)
+                        real_pixel = generate_tracking_pixel(real_id, sidebar_config.get('tracking_url'))
+                        real_link = generate_tracked_link(real_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
+                        
+                        body_txt = EMAIL_BODY_TEMPLATE.format(
+                            creator_name=dest_name,
+                            sender_name=sidebar_config['sender_name'],
+                            project_title=row['AI_Project_Title'],
+                            technical_detail=row['AI_Technical_Detail'],
+                            sender_title=sidebar_config['sender_title']
+                        )
+                        
+                        body_html = EMAIL_BODY_HTML_TEMPLATE.format(
+                            creator_name=dest_name,
+                            sender_name=sidebar_config['sender_name'],
+                            project_title=row['AI_Project_Title'],
+                            technical_detail=row['AI_Technical_Detail'],
+                            sender_title=sidebar_config['sender_title'],
+                            calendly_link=real_link,
+                            tracking_pixel=real_pixel
+                        )
+                        
+                        ok, msg, error_type = send_email_gmail(
+                            dest_email, EMAIL_SUBJECT, body_txt, body_html,
+                            sidebar_config['email_user'], sidebar_config['email_pass'],
+                            sidebar_config['sender_name'], mode, config['attachments']
+                        )
+                        
+                        save_send_record(
+                            recipient_email=dest_email,
+                            recipient_name=dest_name,
+                            subject=EMAIL_SUBJECT,
+                            status="success" if ok else "failed",
+                            error_type=error_type,
+                            mode=mode
+                        )
+                        
+                        if ok:
+                            df.loc[idx, 'Email_Status'] = "发送成功"
+                            st.success(f"✅ 发送成功: {dest_name}")
+                        else:
+                            df.loc[idx, 'Email_Status'] = f"发送失败: {msg}"
+                            st.error(f"❌ 发送失败: {dest_name} - {msg}")
+                        
+                        save_progress(df, mode)
                     
-                    # 生成真实追踪 ID 和 内容
-                    real_id = generate_email_id(mode, idx, dest_email, dest_name)
-                    real_pixel = generate_tracking_pixel(real_id, sidebar_config.get('tracking_url'))
-                    real_link = generate_tracked_link(real_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
+                    # 更新剩余数量显示
+                    remaining_count = len(st.session_state.get(f'send_queue_{mode}', []))
+                    if remaining_count > 0:
+                        st.info(f"📤 队列剩余: {remaining_count} 封")
                     
-                    body_txt = EMAIL_BODY_TEMPLATE.format(
-                        creator_name=dest_name,
-                        sender_name=sidebar_config['sender_name'],
-                        project_title=row['AI_Project_Title'],
-                        technical_detail=row['AI_Technical_Detail'],
-                        sender_title=sidebar_config['sender_title']
-                    )
-                    
-                    body_html = EMAIL_BODY_HTML_TEMPLATE.format(
-                        creator_name=dest_name,
-                        sender_name=sidebar_config['sender_name'],
-                        project_title=row['AI_Project_Title'],
-                        technical_detail=row['AI_Technical_Detail'],
-                        sender_title=sidebar_config['sender_title'],
-                        calendly_link=real_link,
-                        tracking_pixel=real_pixel
-                    )
-                    
-                    # 发送 (Only Gmail supported now)
-                    ok, msg, error_type = send_email_gmail(
-                        dest_email, EMAIL_SUBJECT, body_txt, body_html,
-                        sidebar_config['email_user'], sidebar_config['email_pass'],
-                        sidebar_config['sender_name'], mode, config['attachments']
-                    )
-                    
-                    # 保存发送记录
-                    save_send_record(
-                        recipient_email=dest_email,
-                        recipient_name=dest_name,
-                        subject=EMAIL_SUBJECT,
-                        status="success" if ok else "failed",
-                        error_type=error_type,
-                        mode=mode
-                    )
-                    
-                    if ok:
-                        df.loc[idx, 'Email_Status'] = "发送成功"
-                        success_count += 1
-                    else:
-                        df.loc[idx, 'Email_Status'] = f"发送失败: {msg}"
-                        fail_count += 1
-                    
-                    save_progress(df, mode) # Saved to output/
-                    progress_bar.progress((i + 1) / len(pending_indices))
-                    time.sleep(1) # 避免速率限制
-                
-                status_area.success(f"批量发送完成！成功: {success_count}, 失败: {fail_count}")
-                st.rerun()
+                    time.sleep(1)  # 避免速率限制
+                    st.rerun()
+            
+            # 暂停状态提示
+            if st.session_state[f'paused_{mode}']:
+                remaining_count = len(st.session_state.get(f'send_queue_{mode}', []))
+                st.warning(f"⏸️ 发送已暂停，队列剩余 {remaining_count} 封。点击「继续」恢复发送。")
 
