@@ -1,13 +1,21 @@
 import os
 
-# 保存文件路径
-SAVE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 项目根目录
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 资源目录
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+LEADS_DIR = os.path.join(ASSETS_DIR, "leads_form")
+ATTACHMENTS_DIR = os.path.join(ASSETS_DIR, "attachments")
+
+# 输出目录
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 
 # --- B2B/B2C 配置 ---
 MODE_CONFIG = {
     "B2B": {
         "name": "B2B 企业客户",
-        "progress_file": os.path.join(SAVE_DIR, "autokol_progress_b2b.csv"),
+        "progress_file": os.path.join(OUTPUT_DIR, "autokol_progress_b2b.csv"),
         "attachments": [
             "Utopai Early Access - Creator FAQ - V2.pdf",
             "One-pager-enterprise.pdf"
@@ -23,7 +31,7 @@ MODE_CONFIG = {
     },
     "B2C": {
         "name": "B2C 创作者",
-        "progress_file": os.path.join(SAVE_DIR, "autokol_progress_b2c.csv"),
+        "progress_file": os.path.join(OUTPUT_DIR, "autokol_progress_b2c.csv"),
         "attachments": [
             "Utopai Early Access - Creator FAQ - V2.pdf",
             "One-pager_final.pdf"

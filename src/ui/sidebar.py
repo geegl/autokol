@@ -11,18 +11,12 @@ def render_sidebar():
         config['base_url'] = st.text_input("Base URL", value="https://api.siliconflow.cn/v1", key="sidebar_base_url")
         config['model_name'] = st.text_input("Model Name", value="deepseek-ai/DeepSeek-V3.2", key="sidebar_model_name")
         
-        st.subheader("2. 邮箱设置 (Gmail/Resend)")
-        provider = st.selectbox("邮件服务商", ["Gmail", "Resend"], key="sidebar_provider")
-        config['email_provider'] = provider
+        st.subheader("2. 邮箱设置 (Gmail)")
+        st.caption("使用 Google Workspace / Gmail SMTP")
+        config['email_provider'] = "Gmail" # 强制 Gmail
         
         config['email_user'] = st.text_input("发件人邮箱地址", help="例如: growth@utopaistudios.com", key="sidebar_email_user")
-        
-        if provider == "Gmail":
-            config['email_pass'] = st.text_input("应用专用密码", type="password", help="在 Google 账户 → 安全性 → 两步验证 → 应用专用密码 中生成", key="sidebar_email_pass")
-            config['resend_api_key'] = None
-        else:
-            config['resend_api_key'] = st.text_input("Resend API Key", type="password", help="从 Resend Dashboard 获取", key="sidebar_resend_api_key")
-            config['email_pass'] = None
+        config['email_pass'] = st.text_input("应用专用密码", type="password", help="在 Google 账户 → 安全性 → 两步验证 → 应用专用密码 中生成", key="sidebar_email_pass")
         
         st.subheader("3. 发件人信息")
         config['sender_name'] = st.text_input("Your Name", value="Cecilia", key="sidebar_sender_name")
