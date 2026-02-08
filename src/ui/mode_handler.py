@@ -438,6 +438,9 @@ def render_mode_ui(mode, sidebar_config):
                     # 这里简单处理：清除自定义值
                     if f'custom_subject_val_{mode}' in st.session_state:
                         del st.session_state[f'custom_subject_val_{mode}']
+                    # 强制重置下拉框 (直接修改 widget key 对应的值)
+                    st.session_state[f"select_subject_{mode}"] = get_email_subjects()[0]
+                    st.session_state[f'email_subject_final_{mode}'] = get_email_subjects()[0]
                     st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
                     st.rerun()
             with col_info:
@@ -463,9 +466,21 @@ def render_mode_ui(mode, sidebar_config):
             current_row = df.loc[selected_index]
             
             # 显示关键字段
-            st.write("**AI 生成内容预览:**")
-            st.text_input("Project Title", value=current_row['AI_Project_Title'], key=f"title_{selected_index}", disabled=True)
-            st.text_area("Technical Detail", value=current_row['AI_Technical_Detail'], key=f"detail_{selected_index}", disabled=True)
+            st.write("**AI 生成内容预览 (可编辑修正):**")
+            
+            # Project Title 编辑逻辑
+            new_p_title = st.text_input("Project Title", value=current_row['AI_Project_Title'], key=f"title_{selected_index}")
+            if new_p_title != current_row['AI_Project_Title']:
+                df.loc[selected_index, 'AI_Project_Title'] = new_p_title
+                save_progress(df, mode)
+                st.rerun()
+                
+            # Technical Detail 编辑逻辑
+            new_t_detail = st.text_area("Technical Detail", value=current_row['AI_Technical_Detail'], key=f"detail_{selected_index}")
+            if new_t_detail != current_row['AI_Technical_Detail']:
+                df.loc[selected_index, 'AI_Technical_Detail'] = new_t_detail
+                save_progress(df, mode)
+                st.rerun()
         
         with col_preview:
             # 实时渲染邮件预览
@@ -625,6 +640,13 @@ def render_mode_ui(mode, sidebar_config):
                 st.session_state[f'sending_{mode}'] = False
             if f'paused_{mode}' not in st.session_state:
                 st.session_state[f'paused_{mode}'] = False
+            
+            # --- V2.5 发送状态提示 ---
+            if not st.session_state.get(f'sending_{mode}', False):
+                if len(pending_indices) > 0:
+                    st.info(f"💡 队列中有 **{len(pending_indices)}** 封邮件等待发送。准备好后请点击下方「批量发送」。")
+                elif failed_indices:
+                    st.warning(f"⚠️ 发现 **{len(failed_indices)}** 封发送失败的邮件。请点击下方「重试失败」。")
             
             # 按钮区域
             btn_col1, btn_col2, btn_col3 = st.columns(3)
