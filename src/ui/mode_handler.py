@@ -507,7 +507,12 @@ def render_mode_ui(mode, sidebar_config):
             # 获取当前选择的主题
             current_subject = st.session_state.get(f'email_subject_final_{mode}', "Default Subject")
             
-            st.text_input("预览: 邮件主题", value=current_subject, disabled=True, key=f"preview_subject_{mode}")
+            # V2.4: 手动刷新按钮 (响应用户需求)
+            if st.button("🔄 刷新预览 (Update Preview)", key=f"btn_refresh_preview_{mode}"):
+                st.rerun()
+            
+            # 使用 st.info 显示主题 (无状态组件，确保实时刷新，避免 text_input 的缓存问题)
+            st.info(f"**预览的主题 (Subject):**\n{current_subject}")
             
             tab_text, tab_html = st.tabs(["纯文本预览", "HTML 预览"])
             with tab_text:

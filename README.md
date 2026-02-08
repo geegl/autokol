@@ -74,4 +74,4 @@ streamlit run app.py
 本项目依赖 Vercel 服务进行追踪和进度云端备份。详情请见 `email-tracker/README.md`。
 
 ---
-© 2024 Utopai Studios
+© 2026 Utopai Studios
