@@ -1,28 +1,28 @@
 // 查询追踪统计数据 - 友好格式
+const { Redis } = require('@upstash/redis');
 
-// 使用环境变量的 Upstash Redis
-let memoryStore = { opens: {}, clicks: {} };
-
-async function getRedisClient() {
-    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-        const { Redis } = require('@upstash/redis');
-        return new Redis({
+let redis = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    try {
+        redis = new Redis({
             url: process.env.UPSTASH_REDIS_REST_URL,
             token: process.env.UPSTASH_REDIS_REST_TOKEN,
         });
+    } catch (err) {
+        console.error('Redis init error:', err);
     }
-    return null;
 }
 
+let memoryStore = { opens: {}, clicks: {} };
+
 async function loadData() {
-    try {
-        const redis = await getRedisClient();
-        if (redis) {
+    if (redis) {
+        try {
             const data = await redis.get('tracking_data');
             return data || { opens: {}, clicks: {} };
+        } catch (e) {
+            console.error('Redis load error:', e);
         }
-    } catch (e) {
-        console.error('Redis load error:', e);
     }
     return memoryStore;
 }
@@ -57,7 +57,25 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
-    const data = await loadData();
+    let data_source = 'memory (no persistence)';
+    let data = { opens: {}, clicks: {} };
+
+    try {
+        if (redis) {
+            data_source = 'redis';
+            // 尝试从 Redis 加载
+            const redisData = await redis.get('tracking_data');
+            if (redisData) {
+                data = redisData;
+            }
+        } else {
+            data = memoryStore;
+        }
+    } catch (err) {
+        console.error('Data load error:', err);
+        data_source = `error: ${err.message}`;
+    }
+
     const { id, format } = req.query;
 
     // 查询特定邮件的追踪数据
@@ -112,7 +130,7 @@ module.exports = async (req, res) => {
             opened_count: recipients.filter(r => r.opened).length,
             clicked_count: recipients.filter(r => r.clicked).length,
             recipients: recipients,
-            storage: process.env.UPSTASH_REDIS_REST_URL ? 'redis' : 'memory (data will not persist)'
+            storage: data_source
         });
     }
 
@@ -122,7 +140,7 @@ module.exports = async (req, res) => {
         total_opens: Object.values(data.opens).reduce((sum, arr) => sum + arr.length, 0),
         total_emails_clicked: Object.keys(data.clicks).length,
         total_clicks: Object.values(data.clicks).reduce((sum, arr) => sum + arr.length, 0),
-        storage: process.env.UPSTASH_REDIS_REST_URL ? 'redis' : 'memory (data will not persist)',
+        storage: data_source,
         recent_opens: Object.entries(data.opens)
             .flatMap(([id, events]) => {
                 const parsed = parseEmailId(id);
