@@ -3,8 +3,8 @@
 
 # 邮件主题
 email_subject:
-  B2B: "Early and exclusive access to a new AI model for cinematic storytelling?"
-  B2C: "Early and exclusive access to a new AI model for cinematic storytelling?"
+  B2B: "Utopai Studios Creator Program: Amplify Your Vision - Early and exclusive access to a new AI model for cinematic storytelling?"
+  B2C: "Utopai Studios Creator Program: Amplify Your Vision - Early and exclusive access to a new AI model for cinematic storytelling?"
 
 # 发件人签名信息 (默认值，可在侧边栏覆盖)
 sender:
