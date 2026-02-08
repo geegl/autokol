@@ -625,8 +625,14 @@ def render_mode_ui(mode, sidebar_config):
                     help="设置固定的等待时间。"
                 )
             else:
-                st.info("已启用智能随机间隔模式：每封邮件发送后将随机等待 5 到 10 秒。")
-                send_interval = None
+                send_interval = st.slider(
+                    "⏱️ 随机间隔范围 (秒)", 
+                    min_value=2, 
+                    max_value=60, 
+                    value=(5, 10),
+                    help="设置随机等待的最小值和最大值。"
+                )
+                st.info(f"✅ 智能模式已启用：每封邮件将随机等待 {send_interval[0]} 到 {send_interval[1]} 秒。")
 
             st.divider()
             
@@ -772,7 +778,8 @@ def render_mode_ui(mode, sidebar_config):
                     
                     if use_smart_interval:
                         import random
-                        wait_seconds = random.uniform(5, 10)
+                        # send_interval is a tuple (min, max)
+                        wait_seconds = random.uniform(send_interval[0], send_interval[1])
                         st.caption(f"⏳ 智能随机等待: {wait_seconds:.1f} 秒...")
                         time.sleep(wait_seconds)
                     else:
