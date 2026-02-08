@@ -1,0 +1,12 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/open/:id",
+            "destination": "/api/open/[id].js"
+        },
+        {
+            "source": "/api/click/:id",
+            "destination": "/api/click/[id].js"
+        }
+    ]
+}
