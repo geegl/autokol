@@ -32,6 +32,12 @@ def render_sidebar():
             st.success("✅ 追踪已启用 - 将自动记录打开率和点击率")
         else:
             st.info("💡 部署 email-tracker 到 Vercel 后可启用追踪")
+            
+        with st.expander("🛠️ 高级设置"):
+            # Sentry 因为是 Python 并发，可以在这里配置
+            config['sentry_dsn'] = st.text_input("Sentry DSN (错误监控)", value="", type="password", help="在此填入 Sentry DSN 以启用自动错误上报", key="sidebar_sentry_dsn")
+            if config['sentry_dsn']:
+                st.caption("✅ 错误监控已启用")
         
         st.divider()
         

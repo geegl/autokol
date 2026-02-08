@@ -139,26 +139,49 @@ def render_mode_ui(mode, sidebar_config):
                 if not rows_to_generate:
                     st.success("所有行都已生成内容！")
                 else:
+                    total_rows = len(rows_to_generate)
                     progress_bar = st.progress(0)
                     status_text = st.empty()
+                    completed_count = 0
                     
-                    for i, idx in enumerate(rows_to_generate):
-                        row = df.loc[idx]
-                        status_text.text(f"正在生成第 {idx+1} 行...")
+                    # 线程工作函数
+                    def process_row(idx):
+                        try:
+                            row = df.loc[idx]
+                            p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'])
+                            return idx, p_title, t_detail, source, None
+                        except Exception as e:
+                            return idx, None, None, None, str(e)
+
+                    # 并发执行 (最大 3 个线程，避免速率限制)
+                    max_workers = 3
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        future_to_idx = {executor.submit(process_row, idx): idx for idx in rows_to_generate}
                         
-                        # 调用服务生成内容
-                        p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'])
-                        
-                        df.loc[idx, 'AI_Project_Title'] = p_title
-                        df.loc[idx, 'AI_Technical_Detail'] = t_detail
-                        df.loc[idx, 'Content_Source'] = source
-                        df.loc[idx, 'Email_Status'] = "已生成"
-                        
-                        # 实时保存
-                        save_progress(df, mode)
-                        progress_bar.progress((i + 1) / len(rows_to_generate))
-                    
-                    status_text.text("✅ 生成完成！")
+                        for future in as_completed(future_to_idx):
+                            original_idx = future_to_idx[future]
+                            idx, p_title, t_detail, source, error = future.result()
+                            
+                            completed_count += 1
+                            
+                            if error:
+                                st.warning(f"第 {idx+1} 行生成失败: {error}")
+                            else:
+                                df.loc[idx, 'AI_Project_Title'] = p_title
+                                df.loc[idx, 'AI_Technical_Detail'] = t_detail
+                                df.loc[idx, 'Content_Source'] = source
+                                df.loc[idx, 'Email_Status'] = "已生成"
+                                
+                                # 实时保存 (由于是并发，这里需要加锁或者只在主线程保存，Pandas对象操作非线程安全，但在 GIL 下通常没事，
+                                # 为了安全起见，这里每次完成后保存一次，可能会有 IO 瓶颈，但保证数据安全)
+                                save_progress(df, mode)
+                            
+                            progress = completed_count / total_rows
+                            progress_bar.progress(progress)
+                            status_text.text(f"正在生成... ({completed_count}/{total_rows})")
+
+                    status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
+                    time.sleep(1)
                     st.rerun()
 
         with col_clear:
