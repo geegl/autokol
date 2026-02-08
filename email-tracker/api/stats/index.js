@@ -1,14 +1,30 @@
 // 查询追踪统计数据 - 友好格式
-const fs = require('fs');
-const DATA_FILE = '/tmp/tracking_data.json';
 
-function loadData() {
+// 使用环境变量的 Upstash Redis
+let memoryStore = { opens: {}, clicks: {} };
+
+async function getRedisClient() {
+    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+        const { Redis } = require('@upstash/redis');
+        return new Redis({
+            url: process.env.UPSTASH_REDIS_REST_URL,
+            token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        });
+    }
+    return null;
+}
+
+async function loadData() {
     try {
-        if (fs.existsSync(DATA_FILE)) {
-            return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const redis = await getRedisClient();
+        if (redis) {
+            const data = await redis.get('tracking_data');
+            return data || { opens: {}, clicks: {} };
         }
-    } catch (e) { }
-    return { opens: {}, clicks: {} };
+    } catch (e) {
+        console.error('Redis load error:', e);
+    }
+    return memoryStore;
 }
 
 // 解析 email_id: 格式为 "mode_idx_timestamp_recipientEmail_recipientName"
@@ -23,7 +39,6 @@ function parseEmailId(emailId) {
             name: parts.slice(4).join('_') || 'unknown'
         };
     }
-    // 兼容旧格式
     return {
         mode: parts[0] || 'unknown',
         index: parts[1] || '0',
@@ -34,15 +49,15 @@ function parseEmailId(emailId) {
 }
 
 module.exports = async (req, res) => {
-    // 简单的 API Key 验证 (可选)
-    const apiKey = req.headers['x-api-key'] || req.query.key;
-    const expectedKey = process.env.TRACKER_API_KEY;
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
-    if (expectedKey && apiKey !== expectedKey) {
-        return res.status(401).json({ error: 'Unauthorized' });
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
 
-    const data = loadData();
+    const data = await loadData();
     const { id, format } = req.query;
 
     // 查询特定邮件的追踪数据
@@ -86,7 +101,6 @@ module.exports = async (req, res) => {
             };
         });
 
-        // 按打开状态和时间排序
         recipients.sort((a, b) => {
             if (a.opened !== b.opened) return b.opened - a.opened;
             if (a.clicked !== b.clicked) return b.clicked - a.clicked;
@@ -97,7 +111,8 @@ module.exports = async (req, res) => {
             total_tracked: recipients.length,
             opened_count: recipients.filter(r => r.opened).length,
             clicked_count: recipients.filter(r => r.clicked).length,
-            recipients: recipients
+            recipients: recipients,
+            storage: process.env.UPSTASH_REDIS_REST_URL ? 'redis' : 'memory (data will not persist)'
         });
     }
 
@@ -107,6 +122,7 @@ module.exports = async (req, res) => {
         total_opens: Object.values(data.opens).reduce((sum, arr) => sum + arr.length, 0),
         total_emails_clicked: Object.keys(data.clicks).length,
         total_clicks: Object.values(data.clicks).reduce((sum, arr) => sum + arr.length, 0),
+        storage: process.env.UPSTASH_REDIS_REST_URL ? 'redis' : 'memory (data will not persist)',
         recent_opens: Object.entries(data.opens)
             .flatMap(([id, events]) => {
                 const parsed = parseEmailId(id);

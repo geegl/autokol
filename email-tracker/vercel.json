@@ -1,15 +1,12 @@
 {
-    "version": 2,
-    "builds": [
+    "rewrites": [
         {
-            "src": "api/**/*.js",
-            "use": "@vercel/node"
-        }
-    ],
-    "routes": [
+            "source": "/api/open/:id",
+            "destination": "/api/open/[id]"
+        },
         {
-            "src": "/api/(.*)",
-            "dest": "/api/$1"
+            "source": "/api/click/:id",
+            "destination": "/api/click/[id]"
         }
     ]
 }

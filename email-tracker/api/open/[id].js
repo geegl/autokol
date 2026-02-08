@@ -4,29 +4,50 @@ const TRANSPARENT_PIXEL = Buffer.from(
     'base64'
 );
 
-// 简单的内存存储 (生产环境用 Vercel KV)
-// 数据存储在 /tmp 目录,重启后丢失,正式环境需要 KV
-const fs = require('fs');
-const DATA_FILE = '/tmp/tracking_data.json';
+// 使用环境变量的 Upstash Redis（需要在 Vercel 配置）
+// 如果没有配置，使用内存存储（仅用于测试）
+let memoryStore = { opens: {}, clicks: {} };
 
-function loadData() {
-    try {
-        if (fs.existsSync(DATA_FILE)) {
-            return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        }
-    } catch (e) { }
-    return { opens: {}, clicks: {} };
+async function getRedisClient() {
+    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+        const { Redis } = require('@upstash/redis');
+        return new Redis({
+            url: process.env.UPSTASH_REDIS_REST_URL,
+            token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        });
+    }
+    return null;
 }
 
-function saveData(data) {
+async function loadData() {
     try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data));
-    } catch (e) { }
+        const redis = await getRedisClient();
+        if (redis) {
+            const data = await redis.get('tracking_data');
+            return data || { opens: {}, clicks: {} };
+        }
+    } catch (e) {
+        console.error('Redis load error:', e);
+    }
+    return memoryStore;
+}
+
+async function saveData(data) {
+    try {
+        const redis = await getRedisClient();
+        if (redis) {
+            await redis.set('tracking_data', data);
+            return;
+        }
+    } catch (e) {
+        console.error('Redis save error:', e);
+    }
+    memoryStore = data;
 }
 
 module.exports = async (req, res) => {
     // 获取追踪 ID
-    const { id } = req.query;
+    const id = req.query.id;
 
     if (!id) {
         res.setHeader('Content-Type', 'image/png');
@@ -35,7 +56,7 @@ module.exports = async (req, res) => {
     }
 
     // 记录打开事件
-    const data = loadData();
+    const data = await loadData();
     if (!data.opens[id]) {
         data.opens[id] = [];
     }
@@ -44,7 +65,7 @@ module.exports = async (req, res) => {
         ip: req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
         userAgent: req.headers['user-agent'] || 'unknown'
     });
-    saveData(data);
+    await saveData(data);
 
     console.log(`[OPEN] Email ${id} opened at ${new Date().toISOString()}`);
 

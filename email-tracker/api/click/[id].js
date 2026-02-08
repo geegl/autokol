@@ -1,24 +1,47 @@
 // 点击追踪 - 记录点击后重定向到目标 URL
-const fs = require('fs');
-const DATA_FILE = '/tmp/tracking_data.json';
 
-function loadData() {
-    try {
-        if (fs.existsSync(DATA_FILE)) {
-            return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        }
-    } catch (e) { }
-    return { opens: {}, clicks: {} };
+// 使用环境变量的 Upstash Redis
+let memoryStore = { opens: {}, clicks: {} };
+
+async function getRedisClient() {
+    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+        const { Redis } = require('@upstash/redis');
+        return new Redis({
+            url: process.env.UPSTASH_REDIS_REST_URL,
+            token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        });
+    }
+    return null;
 }
 
-function saveData(data) {
+async function loadData() {
     try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data));
-    } catch (e) { }
+        const redis = await getRedisClient();
+        if (redis) {
+            const data = await redis.get('tracking_data');
+            return data || { opens: {}, clicks: {} };
+        }
+    } catch (e) {
+        console.error('Redis load error:', e);
+    }
+    return memoryStore;
+}
+
+async function saveData(data) {
+    try {
+        const redis = await getRedisClient();
+        if (redis) {
+            await redis.set('tracking_data', data);
+            return;
+        }
+    } catch (e) {
+        console.error('Redis save error:', e);
+    }
+    memoryStore = data;
 }
 
 module.exports = async (req, res) => {
-    const { id } = req.query;
+    const id = req.query.id;
     const targetUrl = req.query.url;
 
     if (!targetUrl) {
@@ -27,7 +50,7 @@ module.exports = async (req, res) => {
 
     // 记录点击事件
     if (id) {
-        const data = loadData();
+        const data = await loadData();
         if (!data.clicks[id]) {
             data.clicks[id] = [];
         }
@@ -37,7 +60,7 @@ module.exports = async (req, res) => {
             ip: req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
             userAgent: req.headers['user-agent'] || 'unknown'
         });
-        saveData(data);
+        await saveData(data);
 
         console.log(`[CLICK] Email ${id} clicked ${targetUrl} at ${new Date().toISOString()}`);
     }
