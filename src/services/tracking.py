@@ -2,6 +2,9 @@ import re
 from datetime import datetime
 from urllib.parse import quote
 
+# 默认追踪服务 URL
+TRACKING_BASE_URL = "https://autokol.vercel.app"
+
 def generate_email_id(mode, idx, recipient_email, recipient_name):
     """生成包含收件人信息的邮件追踪 ID"""
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(recipient_name))[:20]
