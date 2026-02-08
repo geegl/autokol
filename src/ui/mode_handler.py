@@ -493,7 +493,11 @@ def render_mode_ui(mode, sidebar_config):
                             sender_title=sidebar_config['sender_title']
                         )
                         
-                        body_html = text_to_html(\n                            body_txt,\n                            calendly_link=real_link,\n                            tracking_pixel=real_pixel\n                        )
+                        body_html = text_to_html(
+                            body_txt,
+                            calendly_link=real_link,
+                            tracking_pixel=real_pixel
+                        )
                         
                         # 使用用户编辑的主题
                         user_subject = st.session_state.get(f'email_subject_{mode}', EMAIL_SUBJECT)
