@@ -16,12 +16,23 @@ sidebar_config = render_sidebar()
 # 检查配置状态（用于引导流程）
 check_config_status(sidebar_config)
 
-# --- Sentry 错误监控 ---
-if sidebar_config.get('sentry_dsn'):
+# --- Sentry 错误监控 (从 Secrets 或 环境变量 读取) ---
+sentry_dsn = None
+try:
+    if "SENTRY_DSN" in st.secrets:
+        sentry_dsn = st.secrets["SENTRY_DSN"]
+except:
+    pass
+
+import os
+if not sentry_dsn:
+    sentry_dsn = os.environ.get("SENTRY_DSN")
+
+if sentry_dsn:
     try:
         import sentry_sdk
         sentry_sdk.init(
-            dsn=sidebar_config['sentry_dsn'],
+            dsn=sentry_dsn,
             traces_sample_rate=1.0,
             profiles_sample_rate=1.0,
         )
