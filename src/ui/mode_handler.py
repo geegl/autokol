@@ -196,12 +196,12 @@ def render_mode_ui(mode, sidebar_config):
             recipient_email = extract_email(contact_info_val)
             english_name = extract_english_name(client_name_val)
             
-            # 预览时使用假 ID
-            preview_email_id = generate_email_id(mode, selected_index, recipient_email or "preview@example.com", english_name)
+            # 预览时使用假 ID，且不触发真实追踪
+            preview_email_id = f"preview_{mode}_{selected_index}"
             
-            # 生成追踪元素
-            tracking_pixel = generate_tracking_pixel(preview_email_id, sidebar_config.get('tracking_url'))
-            tracked_calendly = generate_tracked_link(preview_email_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
+            # 预览时不使用真实追踪 URL (传入 None)，防止触发真实的打开记录
+            tracking_pixel = generate_tracking_pixel(preview_email_id, None)  # 返回空字符串
+            tracked_calendly = "https://calendly.com/cecilia-utopaistudios/30min"  # 预览时用原始链接
             
             email_body_preview = EMAIL_BODY_TEMPLATE.format(
                 creator_name=english_name,
