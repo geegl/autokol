@@ -32,8 +32,15 @@ def load_email_config():
 _config = load_email_config()
 
 # 导出配置值
+# 导出配置值
 EMAIL_SUBJECT = _config.get("email_subject", DEFAULT_CONFIG["email_subject"])
 CALENDLY_LINK = _config.get("calendly_link", DEFAULT_CONFIG["calendly_link"])
+
+def get_email_subject(mode="B2B"):
+    """根据模式获取邮件主题"""
+    if isinstance(EMAIL_SUBJECT, dict):
+        return EMAIL_SUBJECT.get(mode, EMAIL_SUBJECT.get("B2B", "Default Subject"))
+    return str(EMAIL_SUBJECT)
 
 # 邮件模板 (保持原有格式，支持变量替换)
 EMAIL_BODY_TEMPLATE = """Hi {creator_name},

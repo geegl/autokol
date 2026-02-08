@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
-from src.utils.templates import EMAIL_SUBJECT, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
+from src.utils.templates import get_email_subject, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
@@ -160,19 +160,28 @@ def render_mode_ui(mode, sidebar_config):
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).replace('nan', '')
 
-        # --- 3. 附件选择 (V2.0) ---
-        # 扫描 assets/attachments/{mode} 目录
+        # --- 3. 附件选择 (V2.2 Fix: Dual Folder Scan) ---
+        # 扫描 assets/attachments/{mode} 目录，如果为空则降级扫描 assets/attachments
         st.subheader("📎 附件管理")
-        attachments_dir = os.path.join(os.path.dirname(config['attachments'][0])) if config['attachments'] else None
-        # 如果是绝对路径或不存在，尝试构建标准路径
         from src.config import ASSETS_DIR
-        std_attach_dir = os.path.join(ASSETS_DIR, "attachments", mode)
         
-        if not os.path.exists(std_attach_dir):
-            os.makedirs(std_attach_dir, exist_ok=True)
+        mode_attach_dir = os.path.join(ASSETS_DIR, "attachments", mode)
+        root_attach_dir = os.path.join(ASSETS_DIR, "attachments")
+        
+        if not os.path.exists(mode_attach_dir):
+            os.makedirs(mode_attach_dir, exist_ok=True)
             
-        # 获取可用附件
-        available_files = [f for f in os.listdir(std_attach_dir) if not f.startswith('.')]
+        # 1. 尝试模式目录
+        available_files = [f for f in os.listdir(mode_attach_dir) if not f.startswith('.')]
+        attach_source = mode_attach_dir
+        
+        # 2. 回退到根目录
+        if not available_files and os.path.exists(root_attach_dir):
+            available_files = [f for f in os.listdir(root_attach_dir) if not f.startswith('.')]
+            attach_source = root_attach_dir
+            if available_files:
+                st.caption(f"ℹ️ {mode} 专用附件目录为空，已加载通用附件。")
+
         # 默认选中配置中的附件 (如果存在)
         default_files = [os.path.basename(f) for f in config['attachments']]
         default_selection = [f for f in default_files if f in available_files]
@@ -185,21 +194,56 @@ def render_mode_ui(mode, sidebar_config):
         )
         
         #构建完整路径
-        final_attachments = [os.path.join(std_attach_dir, f) for f in selected_attachments]
+        final_attachments = [os.path.join(attach_source, f) for f in selected_attachments]
         if not final_attachments:
              st.warning("⚠️ 未选择任何附件，邮件将仅包含正文")
              
-        # --- 4. 进度管理与确认 (V2.1) ---
+        # --- 4. 进度管理与确认 (V2.2 Logic: Resume/Restart) ---
         # 尝试加载 output 目录下的进度文件
         progress_df = load_progress(mode)
         is_continuing_progress = False
+
+        # 初始化决策状态 (Resume or New)
+        if f'decision_{mode}' not in st.session_state:
+            st.session_state[f'decision_{mode}'] = None # 'continue' or 'restart'
         
-        if progress_df is not None:
-            if len(progress_df) == len(df):
-                is_continuing_progress = True
-                df = progress_df
-                # 再次清洗进度数据的 NaN
-                df = df.fillna("")
+        # 如果检测到进度，且未做决定，显示选择界面
+        if progress_df is not None and st.session_state[f'decision_{mode}'] is None:
+            # 检查进度文件长度，如果是 0 则忽略
+            if len(progress_df) > 0:
+                st.divider()
+                st.info(f"📂 系统检测到上次未完成的任务 ({len(progress_df)} 行)。")
+                st.write("请选择操作：")
+                col_resume, col_restart = st.columns(2)
+                
+                with col_resume:
+                    if st.button("🔄 继续上次任务 (推荐)", type="primary", key=f"btn_resume_{mode}", use_container_width=True):
+                        st.session_state[f'decision_{mode}'] = 'continue'
+                        st.rerun()
+                
+                with col_restart:
+                    if st.button("🆕 重新开始 (使用此时上传的文件)", key=f"btn_restart_{mode}", use_container_width=True):
+                        st.session_state[f'decision_{mode}'] = 'restart'
+                        st.rerun()
+                
+                st.stop() # 等待用户选择
+            else:
+                 # 空进度文件，直接视为 restart
+                 st.session_state[f'decision_{mode}'] = 'restart'
+
+        # 根据决策执行逻辑
+        decision = st.session_state.get(f'decision_{mode}')
+        
+        if decision == 'continue':
+            is_continuing_progress = True
+            df = progress_df
+            df = df.fillna("")
+            if not st.session_state.get(f'leads_confirmed_{mode}'):
+                st.session_state[f'leads_confirmed_{mode}'] = True # 继续任务默认已确认
+        elif decision == 'restart':
+            is_continuing_progress = False
+            # 清除旧进度文件 (可选，如果不清空，下次还会提示，但这里先保留文件，仅在内存中使用新数据)
+            pass
         
         # 如果不是继续旧进度，则需要用户确认 (V2.1 UX)
         if not is_continuing_progress:
@@ -222,16 +266,19 @@ def render_mode_ui(mode, sidebar_config):
                 
                 if st.button("✅ 确认并开始处理", type="primary", key=f"btn_confirm_leads_{mode}"):
                     st.session_state[f'leads_confirmed_{mode}'] = True
+                    # 如果选择了重新开始，这里可以考虑清除旧进度文件，或者在 save_progress 时覆盖
+                    if st.session_state.get(f'decision_{mode}') == 'restart':
+                         clear_progress(mode) # 自定义清除函数，或者是 save_progress 覆盖
                     st.rerun()
                 
                 st.info("💡 请确认数据无误后点击上方按钮开始处理。")
-                if progress_df is not None:
-                    st.warning(f"⚠️ 注意：检测到旧进度 ({len(progress_df)} 行) 与当前文件 ({len(df)} 行) 不匹配，确认后将**忽略旧进度并重新开始**。")
+                if progress_df is not None and st.session_state.get(f'decision_{mode}') == 'restart':
+                     st.warning("⚠️ 注意：你选择了重新开始，确认后**旧的进度文件将被覆盖**。")
                 
                 st.stop() # 暂停执行，等待确认
 
         if is_continuing_progress:
-             st.info(f"📂 已自动加载上次进度 ({len(df)} 行)。")
+             st.success(f"📂 已加载上次进度 ({len(df)} 行)，继续执行。")
 
         # 初始化新列 (确保列存在)
         if 'AI_Project_Title' not in df.columns:
@@ -333,7 +380,7 @@ def render_mode_ui(mode, sidebar_config):
         
         # 初始化 session_state 用于存储模板
         if f'email_subject_{mode}' not in st.session_state:
-            st.session_state[f'email_subject_{mode}'] = EMAIL_SUBJECT
+            st.session_state[f'email_subject_{mode}'] = get_email_subject(mode)
         if f'email_body_{mode}' not in st.session_state:
             st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
         
@@ -362,7 +409,7 @@ def render_mode_ui(mode, sidebar_config):
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
                 if st.button("🔄 重置为默认模板", key=f"btn_reset_template_{mode}"):
-                    st.session_state[f'email_subject_{mode}'] = EMAIL_SUBJECT
+                    st.session_state[f'email_subject_{mode}'] = get_email_subject(mode)
                     st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
                     st.rerun()
             with col_info:

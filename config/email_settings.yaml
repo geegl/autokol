@@ -2,7 +2,10 @@
 # 修改后重启应用生效
 
 # 邮件主题
-email_subject: "Loved Your Work – Let's Create Something Awesome Together!"
+# 邮件主题 (支持 B2B/B2C 分别配置)
+email_subject:
+  B2B: "Loved Your Work – Let's Create Something Awesome Together!"
+  B2C: "Early and exclusive access to a new AI model for cinematic storytelling?"
 
 # 发件人签名信息 (默认值，可在侧边栏覆盖)
 sender:
