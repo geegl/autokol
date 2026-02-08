@@ -23,6 +23,14 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
+    // API Key 认证
+    const apiKey = req.headers['x-api-key'] || req.query.key;
+    const expectedKey = process.env.PROGRESS_API_KEY;
+
+    if (expectedKey && apiKey !== expectedKey) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+    }
+
     if (!redis) {
         return res.status(500).json({ error: 'Redis not configured' });
     }

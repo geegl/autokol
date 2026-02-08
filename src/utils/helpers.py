@@ -69,10 +69,20 @@ def save_progress(df, mode):
         # 云端保存失败不影响主流程
         pass
 
+def _get_progress_api_key():
+    """获取 Progress API Key"""
+    try:
+        if "PROGRESS_API_KEY" in st.secrets:
+            return st.secrets["PROGRESS_API_KEY"]
+    except:
+        pass
+    return os.environ.get("PROGRESS_API_KEY", "")
+
 def _save_to_cloud(df, mode):
     """保存到云端 Redis（静默失败）"""
     try:
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}"
+        api_key = _get_progress_api_key()
+        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         data = df.to_dict(orient='records')
         requests.post(api_url, json={"data": data}, timeout=5)
     except:
@@ -103,7 +113,8 @@ def load_progress(mode):
 def _load_from_cloud(mode):
     """从云端 Redis 加载进度"""
     try:
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}"
+        api_key = _get_progress_api_key()
+        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         response = requests.get(api_url, timeout=10)
         if response.status_code == 200:
             result = response.json()
@@ -124,7 +135,8 @@ def clear_progress(mode):
     
     # 2. 清除云端
     try:
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}"
+        api_key = _get_progress_api_key()
+        api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         requests.delete(api_url, timeout=5)
     except:
         pass  # 静默失败
