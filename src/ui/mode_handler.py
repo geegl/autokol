@@ -504,6 +504,11 @@ def render_mode_ui(mode, sidebar_config):
                 tracking_pixel=tracking_pixel if sidebar_config.get('tracking_url') else "<!-- Tracking Pixel Placeholder -->"
             )
             
+            # 获取当前选择的主题
+            current_subject = st.session_state.get(f'email_subject_final_{mode}', "Default Subject")
+            
+            st.text_input("预览: 邮件主题", value=current_subject, disabled=True, key=f"preview_subject_{mode}")
+            
             tab_text, tab_html = st.tabs(["纯文本预览", "HTML 预览"])
             with tab_text:
                 st.text_area("邮件正文", value=email_body_preview, height=400)
