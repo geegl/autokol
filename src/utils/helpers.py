@@ -30,14 +30,35 @@ def extract_english_name(name_str):
     return name if name else "there"
 
 
+import tempfile
+import shutil
+
 # ===== 进度持久化（云端 + 本地双重保存）=====
 
 def save_progress(df, mode):
-    """保存进度（优先云端，本地备份）"""
-    # 1. 本地保存（保持兼容）
+    """保存进度（原子写入 + 云端备份）"""
+    progress_file = MODE_CONFIG[mode]["progress_file"]
+    
+    # 1. 原子写入本地（先写临时文件，再重命名）
     try:
-        progress_file = MODE_CONFIG[mode]["progress_file"]
-        df.to_csv(progress_file, index=False, encoding='utf-8-sig')
+        # 获取目标目录
+        target_dir = os.path.dirname(progress_file)
+        
+        # 创建临时文件（在同一目录下，确保 rename 是原子操作）
+        fd, temp_path = tempfile.mkstemp(suffix='.csv', dir=target_dir)
+        try:
+            # 写入临时文件
+            df.to_csv(temp_path, index=False, encoding='utf-8-sig')
+            os.close(fd)
+            
+            # 原子重命名（如果中途失败，原文件不受影响）
+            shutil.move(temp_path, progress_file)
+        except Exception as e:
+            # 清理临时文件
+            os.close(fd) if fd else None
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise e
     except Exception as e:
         st.warning(f"本地保存失败: {e}")
     
