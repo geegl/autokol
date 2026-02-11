@@ -117,7 +117,7 @@ def render_mode_ui(mode, sidebar_config):
                 
                 mapped_cols = st.session_state[f'col_mapping_{mode}']
                 
-                for req_col in required_cols:
+                for i, req_col in enumerate(required_cols):
                     # 尝试自动匹配
                     default_idx = 0
                     if req_col in all_columns:
@@ -129,7 +129,7 @@ def render_mode_ui(mode, sidebar_config):
                         f"系统字段: **{req_col}** 对应你表格中的:", 
                         all_columns,
                         index=default_idx,
-                        key=f"map_{mode}_{req_col}"
+                        key=f"map_{mode}_{req_col}_{i}"
                     )
                     mapped_cols[req_col] = selected_col
                 
