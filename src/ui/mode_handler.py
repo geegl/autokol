@@ -99,58 +99,72 @@ def render_mode_ui(mode, sidebar_config):
             return
 
     if df is not None:
-        # --- 2. 动态列映射 (V2.0) ---
-        required_cols = list(config["columns"].values())
-        missing_cols = [col for col in required_cols if col not in df.columns and col != "Unnamed: 10"]
+        # --- 2. 动态列映射 (V2.9 Refactor: Internal Keys) ---
+        # 使用 items() 获取内部 key (client_name) 和 预期 Header (Name)
+        required_cols_map = config["columns"]
         
-        # 初始化映射状态
+        # 检查缺失 (检查 User Columns 中是否有 Expected Headers)
+        # 注意：如果用户改了列名，这里会误报缺失，但下面的映射可以解决。
+        # V2.9: 我们不再强制检查 df.columns 是否包含 required_cols.values()
+        # 而是看是否有映射。
+        
         if f'col_mapping_{mode}' not in st.session_state:
             st.session_state[f'col_mapping_{mode}'] = {}
+            
+        mapped_cols = st.session_state[f'col_mapping_{mode}']
+        all_columns = df.columns.tolist()
         
-        if missing_cols:
-            st.warning(f"⚠️ 检测到列名不匹配，请手动映射")
-            with st.expander("🔧 列名映射配置", expanded=True):
-                st.info(f"系统需要在你的表格中找到以下列: {', '.join(required_cols)}")
-                
-                all_columns = df.columns.tolist()
-                mapping_confirmed = True
-                
-                mapped_cols = st.session_state[f'col_mapping_{mode}']
-                
-                for i, req_col in enumerate(required_cols):
-                    # 尝试自动匹配
-                    default_idx = 0
-                    if req_col in all_columns:
-                        default_idx = all_columns.index(req_col)
-                    elif req_col in mapped_cols and mapped_cols[req_col] in all_columns:
-                        default_idx = all_columns.index(mapped_cols[req_col])
-                    
-                    selected_col = st.selectbox(
-                        f"系统字段: **{req_col}** 对应你表格中的:", 
-                        all_columns,
-                        index=default_idx,
-                        key=f"map_{mode}_{req_col}_{i}"
-                    )
-                    mapped_cols[req_col] = selected_col
-                
-                if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}"):
-                    st.session_state[f'col_mapping_confirmed_{mode}'] = True
-                    st.rerun()
-                
-                if not st.session_state.get(f'col_mapping_confirmed_{mode}'):
-                    st.stop()
+        # 检测是否有未映射的关键字段
+        # 逻辑：对于每个 internal_key，如果 mapped_cols 里没有，且 df 里也没有默认的 expected_header
+        missing_mapping = []
+        for int_key, exp_header in required_cols_map.items():
+            if int_key not in mapped_cols:
+                if exp_header not in df.columns and exp_header != "Unnamed: 10":
+                    missing_mapping.append(exp_header)
         
-        # 应用映射
-        if st.session_state.get(f'col_mapping_confirmed_{mode}') or not missing_cols:
-            # 如果有映射配置，重命名列
-            mapping = st.session_state.get(f'col_mapping_{mode}')
-            if mapping:
-                # 反转映射: 用户列 -> 系统列
-                rename_dict = {user_col: sys_col for sys_col, user_col in mapping.items()}
-                # 只重命名存在的列
-                valid_rename = {k: v for k, v in rename_dict.items() if k in df.columns}
-                if valid_rename:
-                    df = df.rename(columns=valid_rename)
+        # 只有在确实找不到默认列且未映射时才展开
+        should_expand = len(missing_mapping) > 0
+        
+        if should_expand:
+            st.warning(f"⚠️ 检测到部分列名未匹配，请手动映射")
+            
+        with st.expander("🔧 列名映射配置", expanded=should_expand):
+            st.info(f"系统内置字段 vs 您表格中的列")
+            
+            for int_key, exp_header in required_cols_map.items():
+                # 尝试自动匹配
+                default_idx = 0
+                
+                # 1. 已有映射
+                if int_key in mapped_cols and mapped_cols[int_key] in all_columns:
+                    default_idx = all_columns.index(mapped_cols[int_key])
+                # 2. 默认同名
+                elif exp_header in all_columns:
+                    default_idx = all_columns.index(exp_header)
+                
+                # 能够区分 display label 和 internal key
+                # exp_header 是给用户看的 "系统期望列名"
+                selected_col = st.selectbox(
+                    f"系统字段: **{exp_header}** ({int_key}) 对应:", 
+                    all_columns,
+                    index=default_idx,
+                    key=f"map_{mode}_{int_key}"  # Unique Key!
+                )
+                mapped_cols[int_key] = selected_col
+            
+            if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}"):
+                st.session_state[f'col_mapping_confirmed_{mode}'] = True
+                st.rerun()
+            
+            if should_expand and not st.session_state.get(f'col_mapping_confirmed_{mode}'):
+                st.stop()
+        
+        # 获取最终映射 (用于后续逻辑)
+        # 如果未手动映射，则默认使用 config 中的预期列名
+        final_mapping = mapped_cols.copy()
+        for int_key, exp_header in required_cols_map.items():
+            if int_key not in final_mapping:
+                final_mapping[int_key] = exp_header
         
         # --- 数据预清洗 (V2.1 Fix: B2C NaN issue) ---
         #将所有NaN填充为空字符串，防止后续处理出现 "nan"
@@ -332,7 +346,7 @@ def render_mode_ui(mode, sidebar_config):
                     def process_row(idx):
                         try:
                             row = df.loc[idx]
-                            p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'])
+                            p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'], mapped_cols=final_mapping)
                             return idx, p_title, t_detail, source, None
                         except Exception as e:
                             return idx, None, None, None, str(e)
@@ -714,8 +728,12 @@ def render_mode_ui(mode, sidebar_config):
                     st.session_state[f'send_queue_{mode}'] = queue
                     
                     row = df.loc[idx]
-                    dest_email = extract_email(row.get(config['columns']['contact_info']))
-                    dest_name = extract_english_name(row.get(config['columns']['client_name']))
+                    # 获取列名 (优先使用映射，否则使用默认)
+                    c_contact = final_mapping.get('contact_info', config['columns']['contact_info'])
+                    c_client = final_mapping.get('client_name', config['columns']['client_name'])
+                    
+                    dest_email = extract_email(row.get(c_contact))
+                    dest_name = extract_english_name(row.get(c_client))
                     
                     if not dest_email:
                         st.warning(f"跳过第 {idx+1} 行: 无法提取邮箱")

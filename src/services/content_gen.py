@@ -22,19 +22,34 @@ def clean_detail(s):
         s = s[0].lower() + s[1:]
     return s
 
-def generate_content_for_row(row, config, client, model):
+def generate_content_for_row(row, config, client, model, mapped_cols=None):
     """为单行数据生成 Project Title 和 Technical Detail"""
     cols = config["columns"]
-    client_name = row.get(cols["client_name"], '')
-    features = row.get(cols["features"], '')
-    pain_point = row.get(cols["pain_point"], '')
+    
+    # 获取列值的辅助函数
+    def get_val(key):
+        col_name = None
+        if mapped_cols and key in mapped_cols:
+            col_name = mapped_cols[key]
+        else:
+            col_name = cols.get(key)
+        
+        # 如果列名存在且在 row 中，返回清洗后的值；否则返回空字符串
+        if col_name and col_name in row:
+            val = row[col_name]
+            return str(val).strip() if pd.notna(val) else ""
+        return ""
+
+    client_name = get_val("client_name")
+    features = get_val("features")
+    pain_point = get_val("pain_point")
     
     # 策略 1: B2C 模式如果有预生成内容
     if config.get("has_pregenerated_content") and "pregenerated" in cols:
-        pregenerated = row.get(cols["pregenerated"], '')
+        pregenerated = get_val("pregenerated")
         
-        if pd.notna(pregenerated) and str(pregenerated).strip():
-            text = str(pregenerated).strip()
+        if pregenerated:
+            text = pregenerated
             
             # 类型1: 已有好的英文格式 
             match = re.search(r"Loved your work on (.+?) [–-] particularly the (.+?)\.?$", text)
