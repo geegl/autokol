@@ -387,13 +387,20 @@ def render_mode_ui(mode, sidebar_config):
                             if error:
                                 st.warning(f"第 {idx+1} 行生成失败: {error}")
                             else:
+                                # DEBUG: 检查生成内容是否为空
+                                if not p_title or not t_detail:
+                                    st.error(f"⚠️ Row {idx+1}: 生成内容为空! Source: {source}")
+                                else:
+                                    # Optional: Show success toast periodically
+                                    if completed_count % 5 == 0:
+                                        st.toast(f"✅ 已生成 {completed_count} 行: {p_title[:15]}...")
+                                
                                 df.loc[idx, 'AI_Project_Title'] = p_title
                                 df.loc[idx, 'AI_Technical_Detail'] = t_detail
                                 df.loc[idx, 'Content_Source'] = source
                                 df.loc[idx, 'Email_Status'] = "已生成"
                                 
-                                # 实时保存 (由于是并发，这里需要加锁或者只在主线程保存，Pandas对象操作非线程安全，但在 GIL 下通常没事，
-                                # 为了安全起见，这里每次完成后保存一次，可能会有 IO 瓶颈，但保证数据安全)
+                                # 实时保存
                                 save_progress(df, mode)
                             
                             progress = completed_count / total_rows
