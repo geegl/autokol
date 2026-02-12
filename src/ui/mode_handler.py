@@ -114,6 +114,20 @@ def render_mode_ui(mode, sidebar_config):
         mapped_cols = st.session_state[f'col_mapping_{mode}']
         all_columns = df.columns.tolist()
         
+        # --- V2.9.2 Validate Mappings (Fix: Stale columns from previous file) ---
+        invalid_keys = []
+        for k, v in list(mapped_cols.items()):
+            if v not in all_columns:
+                invalid_keys.append(k)
+        
+        if invalid_keys:
+            st.toast(f"⚠️ 检测到源文件变更，已重置相关映射: {', '.join(invalid_keys)}")
+            for k in invalid_keys:
+                del mapped_cols[k]
+            # 强制重置确认状态，迫使用户重新确认
+            if f'col_mapping_confirmed_{mode}' in st.session_state:
+                del st.session_state[f'col_mapping_confirmed_{mode}']
+        
         # 检测是否有未映射的关键字段
         # 逻辑：对于每个 internal_key，如果 mapped_cols 里没有，且 df 里也没有默认的 expected_header
         missing_mapping = []
