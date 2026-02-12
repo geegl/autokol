@@ -157,7 +157,7 @@ def render_mode_ui(mode, sidebar_config):
             # Label Definitions
             label_map = {
                 "client_name": "客户名称 (工作室/公司名/YouTube账号)",
-                "contact_person": "决策人 (优先人名，无则用 'Team')",
+                "contact_person": "决策人 (优先人名，无则用 '客户名称 + Team')",
                 "contact_info": "联系方式 (邮箱)",
                 "features": "核心特征 (自定义)",
                 "pain_point": "破冰话术要点 (自定义)",
