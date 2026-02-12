@@ -60,9 +60,9 @@ def save_progress(df, mode, force_cloud=False):
                 os.remove(temp_path)
             raise e
     except Exception as e:
-        st.warning(f"本地保存失败: {e}")
-    
-    
+        if mode != "B2C": # Optional: suppress for B2C if needed, but better keep it
+             st.warning(f"本地保存失败: {e}")
+
     # 2. 云端保存（异步/限流）
     # 只有当 force_cloud=True 或 距离上次同步超过 30 秒时才同步
     import time
@@ -72,11 +72,15 @@ def save_progress(df, mode, force_cloud=False):
     
     if force_cloud or (current_time - last_sync_time > 30):
         try:
-            _save_to_cloud(df, mode)
-            st.session_state[last_sync_key] = current_time
+            success = _save_to_cloud(df, mode)
+            if success:
+                st.session_state[last_sync_key] = current_time
+            elif force_cloud:
+                st.warning("⚠️ 云端备份失败 (这不会影响当前操作，但可能无法跨设备恢复)")
         except Exception as e:
-            # 云端保存失败不影响主流程
-            pass
+            # 云端保存失败不影响主流程，但在强制保存时提醒
+            if force_cloud:
+                st.warning(f"⚠️ 云端备份异常: {e}")
 
 def _get_progress_api_key():
     """获取 Progress API Key"""
@@ -88,14 +92,23 @@ def _get_progress_api_key():
     return os.environ.get("PROGRESS_API_KEY", "")
 
 def _save_to_cloud(df, mode):
-    """保存到云端 Redis（静默失败）"""
+    """保存到云端 Redis（静默失败改为日志警告）"""
     try:
         api_key = _get_progress_api_key()
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         data = df.to_dict(orient='records')
-        requests.post(api_url, json={"data": data}, timeout=5)
-    except:
-        pass  # 静默失败
+        
+        # V2.9.13 Fix: Increase timeout for large payloads
+        response = requests.post(api_url, json={"data": data}, timeout=15)
+        if response.status_code == 200:
+            return True
+        else:
+            # st.toast(f"Cloud Save Failed: {response.status_code}") # Optional debug
+            return False
+            
+    except Exception as e:
+        # st.toast(f"Cloud Save Error: {e}") # Optional debug
+        return False
 
 def load_progress(mode):
     """加载进度（优先本地，回退云端）"""
@@ -126,7 +139,8 @@ def _load_from_cloud(mode):
     try:
         api_key = _get_progress_api_key()
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
-        response = requests.get(api_url, timeout=10)
+        # V2.9.13 Fix: Increase timeout
+        response = requests.get(api_url, timeout=15)
         if response.status_code == 200:
             result = response.json()
             if result.get('success') and result.get('data') and result['data'].get('data'):
@@ -134,7 +148,8 @@ def _load_from_cloud(mode):
                 if records:
                     return pd.DataFrame(records)
     except Exception as e:
-        st.warning(f"云端加载失败: {e}")
+        # st.warning(f"云端加载失败: {e}")
+        pass
     return None
 
 def clear_progress(mode):
@@ -142,13 +157,16 @@ def clear_progress(mode):
     # 1. 清除本地
     progress_file = MODE_CONFIG[mode]["progress_file"]
     if os.path.exists(progress_file):
-        os.remove(progress_file)
+        try:
+            os.remove(progress_file)
+        except: pass
     
     # 2. 清除云端
     try:
         api_key = _get_progress_api_key()
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
-        requests.delete(api_url, timeout=5)
+        # V2.9.13 Fix: Increase timeout
+        requests.delete(api_url, timeout=10)
     except:
         pass  # 静默失败
 
@@ -158,8 +176,13 @@ def sync_progress_to_cloud(mode):
     if os.path.exists(progress_file):
         try:
             df = pd.read_csv(progress_file, encoding='utf-8-sig')
-            _save_to_cloud(df, mode)
-            return True
+            success = _save_to_cloud(df, mode)
+            if success:
+                st.success("☁️ 云端同步成功！")
+                return True
+            else:
+                st.error("云端同步失败 (API Error)")
+                return False
         except Exception as e:
             st.error(f"同步失败: {e}")
             return False
