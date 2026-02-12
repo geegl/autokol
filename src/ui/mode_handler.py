@@ -288,8 +288,8 @@ def render_mode_ui(mode, sidebar_config):
                 st.subheader("📋 Leads 数据确认")
                 
                 total_leads = len(df)
-                # 计算有效邮箱 (基于 config['columns']['contact_info'])
-                contact_col = config['columns']['contact_info']
+                # 计算有效邮箱 (使用映射后的列名)
+                contact_col = final_mapping.get('contact_info', config['columns']['contact_info'])
                 valid_emails = 0
                 if contact_col in df.columns:
                      # 简单检查是否包含 @
