@@ -265,6 +265,14 @@ def render_mode_ui(mode, sidebar_config):
         if decision == 'continue':
             is_continuing_progress = True
             df = progress_df
+            
+            # V2.9.3 Fix: Defensive check for corrupted progress data
+            if not isinstance(df, pd.DataFrame):
+                st.error("⚠️ 进度文件已损坏 (Data Type Error)，正在重置...")
+                clear_progress(mode)
+                st.session_state[f'decision_{mode}'] = 'restart'
+                st.rerun()
+                
             df = df.fillna("")
             if not st.session_state.get(f'leads_confirmed_{mode}'):
                 st.session_state[f'leads_confirmed_{mode}'] = True # 继续任务默认已确认
