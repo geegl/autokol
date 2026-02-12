@@ -410,6 +410,10 @@ def render_mode_ui(mode, sidebar_config):
                             progress = completed_count / total_rows
                             progress_bar.progress(progress)
                             status_text.text(f"正在生成... ({completed_count}/{total_rows})")
+                            
+                            # V2.9.7 UX: Add explicit warning that table will refresh at end
+                            if completed_count == 1:
+                                st.info("ℹ️ 注意：为了性能，表格内容将在任务全部完成后统一刷新。请关注上方绿色弹窗确认进度。")
 
                     status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
                     # Increment version to force DataEditor refresh
