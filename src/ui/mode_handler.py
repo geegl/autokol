@@ -329,10 +329,14 @@ def render_mode_ui(mode, sidebar_config):
         # --- 3. 数据预览与编辑 ---
         st.subheader("🛠️ 客户数据预览")
         
+        # V2.9.6 Dynamic Key to force refresh after generation
+        if f'gen_version_{mode}' not in st.session_state:
+            st.session_state[f'gen_version_{mode}'] = 0
+            
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
-            key=f"editor_{mode}",
+            key=f"editor_{mode}_{st.session_state[f'gen_version_{mode}']}",
             column_config={
                 "Email_Status": st.column_config.SelectboxColumn(
                     "状态",
@@ -408,6 +412,8 @@ def render_mode_ui(mode, sidebar_config):
                             status_text.text(f"正在生成... ({completed_count}/{total_rows})")
 
                     status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
+                    # Increment version to force DataEditor refresh
+                    st.session_state[f'gen_version_{mode}'] += 1
                     time.sleep(1)
                     st.rerun()
 
