@@ -1,11 +1,52 @@
 
 import json
 import os
+import requests
+import streamlit as st
 from src.utils.templates import EMAIL_BODY_HTML_TEMPLATE, get_email_subjects
+from src.services.tracking import TRACKING_BASE_URL
 
 # 配置文件路径
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 USER_TEMPLATES_FILE = os.path.join(BASE_DIR, "config", "user_templates.json")
+
+def _get_progress_api_key():
+    """Duplicate of helpers._get_progress_api_key to avoid circular imports"""
+    try:
+        if "PROGRESS_API_KEY" in st.secrets:
+            return st.secrets["PROGRESS_API_KEY"]
+    except:
+        pass
+    return os.environ.get("PROGRESS_API_KEY", "")
+
+def _save_to_cloud(templates):
+    """Save templates to cloud (using progress API with mode='user_templates')"""
+    try:
+        api_key = _get_progress_api_key()
+        # Use mode='user_templates' to sequester data
+        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={api_key}"
+        # API expects {data: [...]} 
+        # For progress (df), data is list of records.
+        # For templates, it is list of dicts. Compatible.
+        response = requests.post(api_url, json={"data": templates}, timeout=10)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+def _load_from_cloud():
+    """Load templates from cloud"""
+    try:
+        api_key = _get_progress_api_key()
+        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={api_key}"
+        response = requests.get(api_url, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            # Structure: {success: true, data: {data: [...]}}
+            if result.get('success') and result.get('data') and result['data'].get('data'):
+                return result['data']['data']
+    except Exception:
+        pass
+    return None
 
 def _init_default_templates():
     """Fail-safe: Return default templates if no file exists"""
@@ -20,35 +61,76 @@ def _init_default_templates():
         }
     ]
 
-def _save_templates_internal(templates):
+def _save_templates_internal(templates, sync_cloud=False):
     """Internal helper to save templates without recursion"""
+    success = False
     try:
         os.makedirs(os.path.dirname(USER_TEMPLATES_FILE), exist_ok=True)
         with open(USER_TEMPLATES_FILE, 'w', encoding='utf-8') as f:
             json.dump(templates, f, indent=4, ensure_ascii=False)
-        return True
+        success = True
     except Exception as e:
         print(f"Error saving template: {e}")
-        return False
+    
+    if success and sync_cloud:
+        # Fire and forget cloud sync
+        _save_to_cloud(templates)
+        
+    return success
 
 def load_user_templates():
-    """Load user templates from JSON file"""
+    """Load user templates from JSON file (with Cloud Sync fallback)"""
+    local_templates = None
+    
+    # 1. Try Local
     if os.path.exists(USER_TEMPLATES_FILE):
         try:
             with open(USER_TEMPLATES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                local_templates = json.load(f)
         except Exception as e:
             print(f"Warning: Failed to load user templates: {e}")
     
-    # If file doesn't exist, init with default
-    defaults = _init_default_templates()
-    # Save directly using internal method to avoid recursion
-    _save_templates_internal(defaults)
-    return defaults
+    # 2. Try Cloud (Always check, or check if local missing?)
+    # On Streamlit Cloud reboot, local file is gone (or reverted to git commit state which might be empty/default).
+    # So we should check Cloud.
+    cloud_templates = _load_from_cloud()
+    
+    final_templates = local_templates
+    
+    # 3. Merge Strategy
+    if cloud_templates:
+        if not local_templates:
+            # Only Cloud has data -> Restore
+            final_templates = cloud_templates
+            _save_templates_internal(final_templates, sync_cloud=False) # Restore local, no need to push back immediately
+            # st.toast("☁️ Restored templates from Cloud Backup")
+            
+        else:
+            # Both exists. 
+            # Heuristic: If Cloud has MORE templates, assume it's newer/better?
+            if len(cloud_templates) > len(local_templates):
+                 final_templates = cloud_templates
+                 _save_templates_internal(final_templates, sync_cloud=False)
+                 # st.toast("☁️ Synced templates from Cloud")
+            
+            # Special case: Local is Default (1 item), Cloud has many.
+            elif len(local_templates) == 1 and local_templates[0]['name'] == 'Default Template' and len(cloud_templates) > 0:
+                 final_templates = cloud_templates
+                 _save_templates_internal(final_templates, sync_cloud=False)
+
+    
+    if not final_templates:
+        # If still nothing, init default
+        defaults = _init_default_templates()
+        _save_templates_internal(defaults, sync_cloud=True) # Push default to Cloud to init
+        return defaults
+        
+    return final_templates
 
 def save_user_template(name, subject, body):
     """Save a new template or update existing one"""
-    # Load current templates (this will handle init if needed)
+    # Load current templates (local first)
+    # We use internal load logic to get latest state
     templates = load_user_templates()
     
     # Check if exists
@@ -63,8 +145,8 @@ def save_user_template(name, subject, body):
             "body": body
         })
     
-    # Write to file using internal helper
-    return _save_templates_internal(templates)
+    # Write to file AND Cloud
+    return _save_templates_internal(templates, sync_cloud=True)
 
 def delete_user_template(name):
     """Delete a template by name"""
@@ -72,4 +154,4 @@ def delete_user_template(name):
     current_templates = load_user_templates()
     new_templates = [t for t in current_templates if t["name"] != name]
     
-    return _save_templates_internal(new_templates)
+    return _save_templates_internal(new_templates, sync_cloud=True)
