@@ -500,6 +500,19 @@ def render_mode_ui(mode, sidebar_config):
             subjects = get_email_subjects()
             st.session_state[f'email_subject_final_{mode}'] = subjects[0] if subjects else "Default Subject"
             
+        def reset_template_callback(m):
+            """Callback to reset template to default"""
+            # Clear custom subject
+            if f'custom_subject_val_{m}' in st.session_state:
+                del st.session_state[f'custom_subject_val_{m}']
+            # Reset subject dropdown
+            subs = get_email_subjects()
+            st.session_state[f"select_subject_{m}"] = subs[0]
+            st.session_state[f'email_subject_final_{m}'] = subs[0]
+            # Reset body to default HTML
+            st.session_state[f'email_body_{m}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
+
+            
         # Convert default plain text template to HTML if not initialized
         if f'email_body_{mode}' not in st.session_state:
             st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
@@ -549,19 +562,11 @@ def render_mode_ui(mode, sidebar_config):
             
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
-                if st.button("🔄 重置为默认模板", key=f"btn_reset_template_{mode}"):
-                    # 重置逻辑：简单地重跑，因为 selectbox 没有默认值的便捷重置方式，
-                    # 但 rerender 会重新加载 get_email_subjects 的第一个
-                    # 如果需要强制重置 selectbox index，需要使用 key hack 或 callback，
-                    # 这里简单处理：清除自定义值
-                    if f'custom_subject_val_{mode}' in st.session_state:
-                        del st.session_state[f'custom_subject_val_{mode}']
-                    # 强制重置下拉框 (直接修改 widget key 对应的值)
-                    st.session_state[f"select_subject_{mode}"] = get_email_subjects()[0]
-                    st.session_state[f'email_subject_final_{mode}'] = get_email_subjects()[0]
-                    # Reset to HTML converted default
-                    st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
-                    st.rerun()
+                st.button("🔄 重置为默认模板", 
+                          key=f"btn_reset_template_{mode}",
+                          on_click=reset_template_callback,
+                          args=(mode,)
+                )
             with col_info:
                 st.caption("💡 模板修改仅在当前会话有效，刷新页面后会重置")
 
