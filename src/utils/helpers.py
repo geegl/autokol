@@ -104,7 +104,9 @@ def load_progress(mode):
     if os.path.exists(progress_file):
         try:
             return pd.read_csv(progress_file, encoding='utf-8-sig')
-        except:
+        except Exception as e:
+            st.error(f"⚠️ 本地进度加载失败 ({progress_file}): {e}")
+            # Do not swallow exception silently, show it to user
             pass
     
     # 2. 本地没有，尝试云端加载
