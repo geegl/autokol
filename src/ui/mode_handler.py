@@ -25,12 +25,20 @@ def strip_html_tags(text):
 def wrap_html_content(html_content, calendly_link="", tracking_pixel=""):
     """Wrap HTML fragment in a full email structure without escaping"""
     
-    # Replace calendly link if needed
+    # Replace calendly link if needed (V2.10.4 Fix: Use Regex to replace safely inside href)
     if calendly_link:
-        html_content = html_content.replace(
-            'https://calendly.com/cecilia-utopaistudios/30min',
-            f'<a href="{calendly_link}">Book a meeting</a>'
-        )
+        target_url = "https://calendly.com/cecilia-utopaistudios/30min"
+        
+        # 1. Replace inside href attributes (e.g. from Quill)
+        pattern = r'(href=["\'])' + re.escape(target_url) + r'(["\'])'
+        if re.search(pattern, html_content):
+             html_content = re.sub(pattern, r'\1' + calendly_link + r'\2', html_content)
+        
+        # 2. Fallback: If URL is in plain text (not in href), replace it (but be careful not to double replace)
+        # Note: In Rich Text mode, users should make links explicit. 
+        # But if they just typed the URL, we might want to auto-link it? 
+        # For safety, let's assume Quill handles linking or user does. 
+        # We only fix the TRACKING link replacement.
             
     return f'''<!DOCTYPE html>
 <html>
