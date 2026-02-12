@@ -9,7 +9,9 @@ import re
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
+from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
+from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
@@ -498,57 +500,123 @@ def render_mode_ui(mode, sidebar_config):
         if f'email_subject_final_{mode}' not in st.session_state:
             # 默认使用第一个选项
             subjects = get_email_subjects()
-            st.session_state[f'email_subject_final_{mode}'] = subjects[0] if subjects else "Default Subject"
-            
-        def reset_template_callback(m):
-            """Callback to reset template to default"""
-            # Clear custom subject
-            if f'custom_subject_val_{m}' in st.session_state:
-                del st.session_state[f'custom_subject_val_{m}']
-            # Reset subject dropdown
-            subs = get_email_subjects()
-            st.session_state[f"select_subject_{m}"] = subs[0]
-            st.session_state[f'email_subject_final_{m}'] = subs[0]
-            # Reset body to default HTML
-            st.session_state[f'email_body_{m}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
+            if f'current_template_idx_{mode}_ver' not in st.session_state:
+             st.session_state[f'current_template_idx_{mode}_ver'] = 0
 
-            
-        # Convert default plain text template to HTML if not initialized
-        if f'email_body_{mode}' not in st.session_state:
-            st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
+        # Load Templates
+        templates = load_user_templates()
+        template_options = [t['name'] for t in templates]
         
+        # Determine current selection index
+        # Default to 0 (first template) if not set
+        if f'selected_template_index_{mode}' not in st.session_state:
+            st.session_state[f'selected_template_index_{mode}'] = 0
+            
+        def on_template_change(m):
+            """Callback when template dropdown changes"""
+            # Update session state with selected template content
+            # Note: We need to read the index from widget key or value
+            # But widget key is updated *after* callback? No, during callback the value is available via st.session_state[key]
+            # Wait, st.selectbox stores VALUE (string name) in key
+            selected_name = st.session_state[f"select_template_name_{m}"]
+            # Find template
+            t = next((x for x in load_user_templates() if x['name'] == selected_name), None)
+            if t:
+                # Update subject input
+                st.session_state[f'email_subject_visual_{m}'] = t['subject']
+                st.session_state[f'email_subject_final_{m}'] = t['subject']
+                # Update body editor
+                st.session_state[f'email_body_{m}'] = t['body']
+
+        def reset_template_callback(m):
+            """Callback to reset to Default Template (First one)"""
+            defaults = load_user_templates()
+            if defaults:
+                first = defaults[0]
+                # Reset internal session state
+                st.session_state[f"email_subject_visual_{m}"] = first['subject']
+                st.session_state[f'email_subject_final_{m}'] = first['subject']
+                st.session_state[f'email_body_{m}'] = first['body']
+                # Reset selectbox widget value (by key)
+                st.session_state[f"select_template_name_{m}"] = first['name']
+
+
+        # Initialize Body if empty
+        if f'email_body_{mode}' not in st.session_state:
+             if templates:
+                 st.session_state[f'email_body_{mode}'] = templates[0]['body']
+             else:
+                 st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
+
+        # Initialize Subject Visual if empty
+        if f'email_subject_visual_{mode}' not in st.session_state:
+             if templates:
+                 st.session_state[f'email_subject_visual_{mode}'] = templates[0]['subject']
+             else:
+                 st.session_state[f'email_subject_visual_{mode}'] = "Default Subject"
+
+
         with st.expander("📝 编辑邮件模板", expanded=False):
             st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`")
             
-            # --- V2.3 邮件主题选择器 ---
-            subjects = get_email_subjects()
-            custom_option = "Create your own..."
-            options = subjects + [custom_option]
+            # --- V2.10 模板选择器 ---
+            # 1. Template Selector
+            col_templ, col_save_btn = st.columns([3, 1])
+            with col_templ:
+                selected_template = st.selectbox(
+                    "选择模板 (Select Template)",
+                    template_options,
+                    index=st.session_state.get(f'selected_template_index_{mode}', 0),
+                    key=f"select_template_name_{mode}",
+                    on_change=on_template_change,
+                    args=(mode,)
+                )
+                
+            with col_save_btn:
+                # "Save as New" Popover
+                with st.popover("💾 另存为..."):
+                    st.markdown("##### 保存为新模板")
+                    new_tmpl_name = st.text_input("模板名称", placeholder="My New Template", key=f"new_tmpl_name_{mode}")
+                    if st.button("确认保存", type="primary", key=f"btn_save_confirm_{mode}"):
+                         if new_tmpl_name:
+                             # Save current content
+                             curr_subj = st.session_state.get(f'email_subject_visual_{mode}', "")
+                             curr_body = st.session_state.get(f'email_body_{mode}', "")
+                             
+                             if save_user_template(new_tmpl_name, curr_subj, curr_body):
+                                 st.toast(f"✅ 模板 '{new_tmpl_name}' 保存成功！")
+                                 time.sleep(1)
+                                 st.rerun()
+                             else:
+                                 st.error("保存失败")
+                         else:
+                             st.warning("请输入模板名称")
+
+            # 2. Subject Input (Editable)
+            # Use 'email_subject_visual_{mode}' as key/value source
+            # But we need to sync it to 'email_subject_final_{mode}'
             
-            # 选择器
-            selected_option = st.selectbox(
+            # Note: We use unique key "input_subject_{mode}" for widget, and default value from session state
+            # When widget changes, we update session state?
+            # Better: use value=st.session_state[...] and ON_CHANGE to update
+            
+            def on_subject_change():
+                st.session_state[f'email_subject_final_{mode}'] = st.session_state[f'input_subject_{mode}']
+                st.session_state[f'email_subject_visual_{mode}'] = st.session_state[f'input_subject_{mode}']
+
+            st.text_input(
                 "邮件主题 (Subject)",
-                options,
-                key=f"select_subject_{mode}"
+                value=st.session_state.get(f'email_subject_visual_{mode}', ""),
+                key=f"input_subject_{mode}",
+                on_change=on_subject_change
             )
             
-            final_subject = selected_option
+            # Also ensure final state is synced if no change event fired yet (init)
+            st.session_state[f'email_subject_final_{mode}'] = st.session_state.get(f'input_subject_{mode}', 
+                                                                                   st.session_state.get(f'email_subject_visual_{mode}', ""))
             
-            # 自定义输入逻辑
-            if selected_option == custom_option:
-                custom_val = st.text_input(
-                    "输入自定义主题", 
-                    value=st.session_state.get(f'custom_subject_val_{mode}', ""),
-                    key=f"input_custom_subject_{mode}"
-                )
-                final_subject = custom_val
-                # 保存自定义值以便 rerender 时保持
-                st.session_state[f'custom_subject_val_{mode}'] = custom_val
             
-            # 更新最终使用的 Subject
-            st.session_state[f'email_subject_final_{mode}'] = final_subject
-            
-            # Quill Editor for Body
+            # 3. Quill Body Editor
             st.write("邮件正文模板 (支持富文本)")
             new_body = st_quill(
                 value=st.session_state[f'email_body_{mode}'],
@@ -557,18 +625,20 @@ def render_mode_ui(mode, sidebar_config):
                 html=True  # Ensure we get HTML back
             )
             
+            # Sync Quill changes to session state
             if new_body and new_body != st.session_state[f'email_body_{mode}']:
-                st.session_state[f'email_body_{mode}'] = new_body
+                 st.session_state[f'email_body_{mode}'] = new_body
             
+            # 4. Buttons (Only Reset needed, Save is above)
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
-                st.button("🔄 重置为默认模板", 
+                st.button("🔄 重置 (Reset)", 
                           key=f"btn_reset_template_{mode}",
                           on_click=reset_template_callback,
                           args=(mode,)
                 )
             with col_info:
-                st.caption("💡 模板修改仅在当前会话有效，刷新页面后会重置")
+                st.caption("💡 修改会即时生效。如需永久保存修改，请点击右上角的「💾 另存为...」按钮。")
 
         st.divider()
 
