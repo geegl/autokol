@@ -136,15 +136,34 @@ def render_mode_ui(mode, sidebar_config):
                 if exp_header not in df.columns and exp_header != "Unnamed: 10":
                     missing_mapping.append(exp_header)
         
-        # 只有在确实找不到默认列且未映射时才展开
-        should_expand = len(missing_mapping) > 0
+        # 默认展开条件：有未映射字段 或 尚未确认
+        is_confirmed = st.session_state.get(f'col_mapping_confirmed_{mode}', False)
+        should_expand = (len(missing_mapping) > 0) or (not is_confirmed)
         
-        if should_expand:
+        if len(missing_mapping) > 0:
             st.warning(f"⚠️ 检测到部分列名未匹配，请手动映射")
-            
+
+        # V2.9.10 UX: Refactor Mapping UI
+        # 1. Add "Re-configure" button if confirmed, to allow re-expanding
+        if is_confirmed:
+            if st.button("🔄 重新配置列名映射", key=f"btn_reconfig_{mode}"):
+                st.session_state[f'col_mapping_confirmed_{mode}'] = False
+                st.rerun()
+
+        # 2. Use updated labels and help text
         with st.expander("🔧 列名映射配置", expanded=should_expand):
-            st.info(f"系统内置字段 vs 您表格中的列")
+            st.info("💡 请将左侧的【系统字段】与右侧您上传表格中的【实际列名】进行对应。")
             
+            # Label Definitions
+            label_map = {
+                "client_name": "客户名称 (工作室/公司名/YouTube账号)",
+                "contact_person": "决策人 (优先人名，无则用 'Team')",
+                "contact_info": "联系方式 (邮箱)",
+                "features": "核心特征 (自定义)",
+                "pain_point": "破冰话术要点 (自定义)",
+                "pregenerated": "已生成内容 (可选)"
+            }
+
             for int_key, exp_header in required_cols_map.items():
                 # 尝试自动匹配
                 default_idx = 0
@@ -156,20 +175,22 @@ def render_mode_ui(mode, sidebar_config):
                 elif exp_header in all_columns:
                     default_idx = all_columns.index(exp_header)
                 
-                # 能够区分 display label 和 internal key
-                # exp_header 是给用户看的 "系统期望列名"
+                display_label = label_map.get(int_key, f"{exp_header} ({int_key})")
+                
                 selected_col = st.selectbox(
-                    f"系统字段: **{exp_header}** ({int_key}) 对应:", 
+                    f"**{display_label}** 对应:", 
                     all_columns,
                     index=default_idx,
-                    key=f"map_{mode}_{int_key}"  # Unique Key!
+                    key=f"map_{mode}_{int_key}",
+                    help=f"系统内部字段: {int_key}"
                 )
                 mapped_cols[int_key] = selected_col
             
-            if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}"):
+            if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}", type="primary"):
                 st.session_state[f'col_mapping_confirmed_{mode}'] = True
                 st.rerun()
             
+            # Block execution if not confirmed
             if should_expand and not st.session_state.get(f'col_mapping_confirmed_{mode}'):
                 st.stop()
         
