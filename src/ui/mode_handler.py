@@ -624,20 +624,44 @@ def render_mode_ui(mode, sidebar_config):
                                                                                    st.session_state.get(f'email_subject_visual_{mode}', ""))
             
             
-            # 3. Quill Body Editor
-            st.write("邮件正文模板 (支持富文本)")
-            new_body = st_quill(
-                value=st.session_state[f'email_body_{mode}'],
-                placeholder="Edit your email template here...",
-                key=f"quill_body_{mode}",
-                html=True  # Ensure we get HTML back
+            # 3. Editor Mode Selector (V2.11 New Feature)
+            # Add toggle for Rich Text vs Clean Text (HTML Source)
+            editor_mode = st.radio(
+                "编辑模式 (Editor Mode)",
+                options=["富文本 (Rich Text)", "源码模式 (HTML Source)"],
+                horizontal=True,
+                key=f"editor_mode_select_{mode}"
             )
-            
-            # Sync Quill changes to session state
-            if new_body and new_body != st.session_state[f'email_body_{mode}']:
-                 st.session_state[f'email_body_{mode}'] = new_body
+
+            current_body_content = st.session_state.get(f'email_body_{mode}', "")
+
+            if "富文本" in editor_mode:
+                # Quill Editor
+                st.caption("所见即所得编辑器 (What You See Is What You Get)")
+                new_body = st_quill(
+                    value=current_body_content,
+                    placeholder="Edit your email template here...",
+                    key=f"quill_body_{mode}",
+                    html=True  # Ensure we get HTML back
+                )
+                if new_body != current_body_content:
+                     st.session_state[f'email_body_{mode}'] = new_body
+
+            else:
+                # Raw HTML / Plain Text Editor
+                st.caption("直接编辑 HTML 源码，适合修复格式问题")
+                new_body_text = st.text_area(
+                    "HTML 源码",
+                    value=current_body_content,
+                    height=300,
+                    key=f"raw_html_body_{mode}"
+                )
+                if new_body_text != current_body_content:
+                     st.session_state[f'email_body_{mode}'] = new_body_text
+
             
             # 4. Buttons (Only Reset needed, Save is above)
+            st.divider()
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
                 st.button("🔄 重置 (Reset)", 
