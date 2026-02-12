@@ -474,7 +474,9 @@ def render_mode_ui(mode, sidebar_config):
                 st.warning("请先生成内容")
                 return
             
-            selected_index = st.selectbox("选择预览行", ready_indices, format_func=lambda x: f"Row {x+1}: {df.loc[x, config['columns']['client_name']]}")
+            # 获取映射后的列名
+            c_client = final_mapping.get('client_name', config['columns']['client_name'])
+            selected_index = st.selectbox("选择预览行", ready_indices, format_func=lambda x: f"Row {x+1}: {df.loc[x, c_client]}")
             
             # 获取当前行数据
             current_row = df.loc[selected_index]
@@ -498,8 +500,12 @@ def render_mode_ui(mode, sidebar_config):
         
         with col_preview:
             # 实时渲染邮件预览
-            client_name_val = current_row.get(config['columns']['client_name'], '')
-            contact_info_val = current_row.get(config['columns']['contact_info'], '')
+            # 获取映射后的列名
+            c_client = final_mapping.get('client_name', config['columns']['client_name'])
+            c_contact = final_mapping.get('contact_info', config['columns']['contact_info'])
+            
+            client_name_val = current_row.get(c_client, '')
+            contact_info_val = current_row.get(c_contact, '')
             recipient_email = extract_email(contact_info_val)
             english_name = extract_english_name(client_name_val)
             
