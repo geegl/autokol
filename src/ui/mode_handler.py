@@ -4,6 +4,8 @@ import time
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
+from streamlit_quill import st_quill
+import re
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
@@ -13,6 +15,38 @@ from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
 from src.services.send_history import save_send_record, get_today_stats
 
+def strip_html_tags(text):
+    """Remove html tags from a string"""
+    clean = re.compile('<.*?>')
+    return re.sub(clean, '', text)
+
+def wrap_html_content(html_content, calendly_link="", tracking_pixel=""):
+    """Wrap HTML fragment in a full email structure without escaping"""
+    
+    # Replace calendly link if needed
+    if calendly_link:
+        html_content = html_content.replace(
+            'https://calendly.com/cecilia-utopaistudios/30min',
+            f'<a href="{calendly_link}">Book a meeting</a>'
+        )
+            
+    return f'''<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+{html_content}
+{tracking_pixel}
+</body>
+</html>'''
+
+# Helper to convert plain text template to HTML fragment for Quill
+def plain_to_quill_html(text):
+    paragraphs = text.split('\n\n')
+    html_parts = []
+    for p in paragraphs:
+        p = p.replace('\n', '<br>')
+        html_parts.append(f'<p>{p}</p>')
+    return '\n'.join(html_parts)
 
 def text_to_html(text, calendly_link="", tracking_pixel=""):
     """将纯文本模板转换为 HTML 格式"""
@@ -462,8 +496,9 @@ def render_mode_ui(mode, sidebar_config):
             subjects = get_email_subjects()
             st.session_state[f'email_subject_final_{mode}'] = subjects[0] if subjects else "Default Subject"
             
+        # Convert default plain text template to HTML if not initialized
         if f'email_body_{mode}' not in st.session_state:
-            st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
+            st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
         
         with st.expander("📝 编辑邮件模板", expanded=False):
             st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`")
@@ -496,19 +531,20 @@ def render_mode_ui(mode, sidebar_config):
             # 更新最终使用的 Subject
             st.session_state[f'email_subject_final_{mode}'] = final_subject
             
-            # 邮件正文
-            new_body = st.text_area(
-                "邮件正文模板 (纯文本)", 
+            # Quill Editor for Body
+            st.write("邮件正文模板 (支持富文本)")
+            new_body = st_quill(
                 value=st.session_state[f'email_body_{mode}'],
-                height=400,
-                key=f"input_body_{mode}"
+                placeholder="Edit your email template here...",
+                key=f"quill_body_{mode}",
+                html=True  # Ensure we get HTML back
             )
-            if new_body != st.session_state[f'email_body_{mode}']:
+            
+            if new_body and new_body != st.session_state[f'email_body_{mode}']:
                 st.session_state[f'email_body_{mode}'] = new_body
             
             col_reset, col_info = st.columns([1, 3])
             with col_reset:
-
                 if st.button("🔄 重置为默认模板", key=f"btn_reset_template_{mode}"):
                     # 重置逻辑：简单地重跑，因为 selectbox 没有默认值的便捷重置方式，
                     # 但 rerender 会重新加载 get_email_subjects 的第一个
@@ -519,7 +555,8 @@ def render_mode_ui(mode, sidebar_config):
                     # 强制重置下拉框 (直接修改 widget key 对应的值)
                     st.session_state[f"select_subject_{mode}"] = get_email_subjects()[0]
                     st.session_state[f'email_subject_final_{mode}'] = get_email_subjects()[0]
-                    st.session_state[f'email_body_{mode}'] = EMAIL_BODY_TEMPLATE
+                    # Reset to HTML converted default
+                    st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
                     st.rerun()
             with col_info:
                 st.caption("💡 模板修改仅在当前会话有效，刷新页面后会重置")
@@ -586,21 +623,29 @@ def render_mode_ui(mode, sidebar_config):
             if p_title.lower() == 'nan': p_title = ""
             if t_detail.lower() == 'nan': t_detail = ""
 
-            # 使用用户编辑的模板
-            user_template = st.session_state.get(f'email_body_{mode}', EMAIL_BODY_TEMPLATE)
-            email_body_preview = user_template.format(
-                creator_name=english_name,
-                sender_name=sidebar_config['sender_name'],
-                project_title=p_title,
-                technical_detail=t_detail,
-                sender_title=sidebar_config['sender_title']
-            )
+            # 使用用户编辑的模板 (HTML)
+            user_template = st.session_state.get(f'email_body_{mode}', plain_to_quill_html(EMAIL_BODY_TEMPLATE))
             
-            # 使用 text_to_html 生成 HTML
-            email_html_preview = text_to_html(
-                email_body_preview, 
-                calendly_link=tracked_calendly, 
-                tracking_pixel=tracking_pixel if sidebar_config.get('tracking_url') else "<!-- Tracking Pixel Placeholder -->"
+            # Format the HTML template
+            try:
+                email_body_preview_html = user_template.format(
+                    creator_name=english_name,
+                    sender_name=sidebar_config['sender_name'],
+                    project_title=p_title,
+                    technical_detail=t_detail,
+                    sender_title=sidebar_config['sender_title']
+                )
+            except Exception as e:
+                email_body_preview_html = f"<p style='color:red'>Template Error: {e}</p>"
+            
+            # Generate Plain Text version for Preview/Multipart
+            email_body_preview_text = strip_html_tags(email_body_preview_html)
+            
+            # Create Final HTML (Wrapped)
+            final_html = wrap_html_content(
+                email_body_preview_html, 
+                config.get('calendly_link', "https://calendly.com/cecilia-utopaistudios/30min"),
+                tracking_pixel if sidebar_config.get('tracking_url') else "<!-- Tracking Pixel Placeholder -->"
             )
             
             # 获取当前选择的主题
@@ -613,11 +658,11 @@ def render_mode_ui(mode, sidebar_config):
             # 使用 st.info 显示主题 (无状态组件，确保实时刷新，避免 text_input 的缓存问题)
             st.info(f"**预览的主题 (Subject):**\n{current_subject}")
             
-            tab_text, tab_html = st.tabs(["纯文本预览", "HTML 预览"])
-            with tab_text:
-                st.text_area("邮件正文", value=email_body_preview, height=400)
-            with tab_html:
-                st.components.v1.html(email_html_preview, height=400, scrolling=True)
+            st.caption("📧 预览:")
+            st.markdown(f"**Subject:** {st.session_state.get(f'email_subject_final_{mode}', '')}")
+            st.markdown("---")
+            # Render HTML in Streamlit
+            st.components.v1.html(final_html, height=400, scrolling=True)
 
         # --- 发送按钮 ---
         st.divider()
@@ -640,18 +685,36 @@ def render_mode_ui(mode, sidebar_config):
                             final_pixel = generate_tracking_pixel(test_id, sidebar_config.get('tracking_url'))
                             final_link = generate_tracked_link(test_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
                             
-                            final_html = text_to_html(
-                                email_body_preview,
+                            # Use the HTML template from session state
+                            user_template_html = st.session_state.get(f'email_body_{mode}', plain_to_quill_html(EMAIL_BODY_TEMPLATE))
+                            
+                            # Format the HTML template
+                            try:
+                                formatted_body_html = user_template_html.format(
+                                    creator_name=english_name,
+                                    sender_name=sidebar_config['sender_name'],
+                                    project_title=p_title,
+                                    technical_detail=t_detail,
+                                    sender_title=sidebar_config['sender_title']
+                                )
+                            except Exception as e:
+                                formatted_body_html = f"<p style='color:red'>Template Error: {e}</p>"
+                            
+                            # Generate plain text version
+                            formatted_body_text = strip_html_tags(formatted_body_html)
+
+                            # Wrap in full HTML structure
+                            final_html_to_send = wrap_html_content(
+                                formatted_body_html,
                                 calendly_link=final_link,
                                 tracking_pixel=final_pixel
                             )
                             
                             # 使用用户编辑的主题
-                            # 使用用户编辑的主题
                             user_subject = st.session_state.get(f'email_subject_final_{mode}', "Subject Error")
                             
                             success, msg, error_type = send_email_gmail(
-                                test_email, user_subject, email_body_preview, final_html,
+                                test_email, user_subject, formatted_body_text, final_html_to_send,
                                 sidebar_config['email_user'], sidebar_config['email_pass'],
                                 sidebar_config['sender_name'], mode, config['attachments']
                             )
@@ -818,18 +881,28 @@ def render_mode_ui(mode, sidebar_config):
                         real_pixel = generate_tracking_pixel(real_id, sidebar_config.get('tracking_url'))
                         real_link = generate_tracked_link(real_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
                         
-                        # 使用用户编辑的模板
-                        user_template = st.session_state.get(f'email_body_{mode}', EMAIL_BODY_TEMPLATE)
-                        body_txt = user_template.format(
-                            creator_name=dest_name,
-                            sender_name=sidebar_config['sender_name'],
-                            project_title=row['AI_Project_Title'],
-                            technical_detail=row['AI_Technical_Detail'],
-                            sender_title=sidebar_config['sender_title']
-                        )
+                        # 使用用户编辑的模板 (HTML)
+                        # Fallback to HTML converted default if not in session state
+                        user_template_html = st.session_state.get(f'email_body_{mode}', plain_to_quill_html(EMAIL_BODY_TEMPLATE))
                         
-                        body_html = text_to_html(
-                            body_txt,
+                        try:
+                            formatted_body_html = user_template_html.format(
+                                creator_name=dest_name,
+                                sender_name=sidebar_config['sender_name'],
+                                project_title=row['AI_Project_Title'],
+                                technical_detail=row['AI_Technical_Detail'],
+                                sender_title=sidebar_config['sender_title']
+                            )
+                        except Exception as e:
+                            # Fallback if formatting fails
+                            formatted_body_html = f"<p>Error formatting email: {e}</p>"
+                        
+                        # Generate plain text version by stripping tags
+                        body_txt = strip_html_tags(formatted_body_html)
+                        
+                        # Generate Full HTML (Wrapped)
+                        body_html = wrap_html_content(
+                            formatted_body_html,
                             calendly_link=real_link,
                             tracking_pixel=real_pixel
                         )
