@@ -20,6 +20,17 @@ def _init_default_templates():
         }
     ]
 
+def _save_templates_internal(templates):
+    """Internal helper to save templates without recursion"""
+    try:
+        os.makedirs(os.path.dirname(USER_TEMPLATES_FILE), exist_ok=True)
+        with open(USER_TEMPLATES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(templates, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Error saving template: {e}")
+        return False
+
 def load_user_templates():
     """Load user templates from JSON file"""
     if os.path.exists(USER_TEMPLATES_FILE):
@@ -31,11 +42,13 @@ def load_user_templates():
     
     # If file doesn't exist, init with default
     defaults = _init_default_templates()
-    save_user_template(defaults[0]["name"], defaults[0]["subject"], defaults[0]["body"])
+    # Save directly using internal method to avoid recursion
+    _save_templates_internal(defaults)
     return defaults
 
 def save_user_template(name, subject, body):
     """Save a new template or update existing one"""
+    # Load current templates (this will handle init if needed)
     templates = load_user_templates()
     
     # Check if exists
@@ -50,25 +63,13 @@ def save_user_template(name, subject, body):
             "body": body
         })
     
-    # Write to file
-    try:
-        os.makedirs(os.path.dirname(USER_TEMPLATES_FILE), exist_ok=True)
-        with open(USER_TEMPLATES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(templates, f, indent=4, ensure_ascii=False)
-        return True
-    except Exception as e:
-        print(f"Error saving template: {e}")
-        return False
+    # Write to file using internal helper
+    return _save_templates_internal(templates)
 
 def delete_user_template(name):
     """Delete a template by name"""
-    templates = load_user_templates()
-    templates = [t for t in templates if t["name"] != name]
+    # Load current templates
+    current_templates = load_user_templates()
+    new_templates = [t for t in current_templates if t["name"] != name]
     
-    try:
-        with open(USER_TEMPLATES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(templates, f, indent=4, ensure_ascii=False)
-        return True
-    except Exception as e:
-        print(f"Error deleting template: {e}")
-        return False
+    return _save_templates_internal(new_templates)

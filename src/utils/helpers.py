@@ -111,26 +111,52 @@ def _save_to_cloud(df, mode):
         return False
 
 def load_progress(mode):
-    """加载进度（优先本地，回退云端）"""
-    # 1. 尝试本地加载
+    """加载进度（优先本地与云端行数对比，取较多者）"""
     progress_file = MODE_CONFIG[mode]["progress_file"]
+    
+    # 1. 尝试本地加载
+    local_df = None
     if os.path.exists(progress_file):
         try:
-            return pd.read_csv(progress_file, encoding='utf-8-sig')
+            local_df = pd.read_csv(progress_file, encoding='utf-8-sig')
         except Exception as e:
             st.error(f"⚠️ 本地进度加载失败 ({progress_file}): {e}")
-            # Do not swallow exception silently, show it to user
             pass
-    
-    # 2. 本地没有，尝试云端加载
+            
+    # 2. 尝试云端加载 (总是尝试，以防云端更新)
     cloud_df = _load_from_cloud(mode)
+    
+    # 3. 决策逻辑：取行数更多的那个
+    final_df = local_df
+    
     if cloud_df is not None:
-        # 同时保存到本地
-        try:
-            cloud_df.to_csv(progress_file, index=False, encoding='utf-8-sig')
-        except:
-            pass
-        return cloud_df
+        if local_df is None:
+            # 只有云端有数据 -> 使用云端并同步到本地
+            final_df = cloud_df
+            try:
+                cloud_df.to_csv(progress_file, index=False, encoding='utf-8-sig')
+                st.toast(f"☁️ 已从云端恢复进度 ({len(cloud_df)} 行)")
+            except: pass
+        else:
+            # 两者都有 -> 比较行数
+            local_count = len(local_df)
+            cloud_count = len(cloud_df)
+            
+            if cloud_count > local_count:
+                st.toast(f"☁️ 云端进度 ({cloud_count} 行) 领先于本地 ({local_count} 行)，已同步", icon="🔄")
+                final_df = cloud_df
+                try:
+                    cloud_df.to_csv(progress_file, index=False, encoding='utf-8-sig')
+                except: pass
+            elif local_count > cloud_count:
+                # 本地领先 -> 可以在后台静默同步到云端? 不，save_progress 会处理
+                # st.toast(f"💾 本地进度 ({local_count} 行) 领先于云端 ({cloud_count} 行)", icon="✅")
+                final_df = local_df
+            else:
+                # 一样多 -> 优先用本地 (可能有些字段更新?)
+                final_df = local_df
+
+    return final_df
     
     return None
 
