@@ -416,6 +416,10 @@ def render_mode_ui(mode, sidebar_config):
                                 st.info("ℹ️ 注意：为了性能，表格内容将在任务全部完成后统一刷新。请关注上方绿色弹窗确认进度。")
 
                     status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
+                    
+                    # Switch decision to 'continue' so next rerun loads the progress we just made!
+                    st.session_state[f'decision_{mode}'] = 'continue'
+                    
                     # Increment version to force DataEditor refresh
                     st.session_state[f'gen_version_{mode}'] += 1
                     time.sleep(1)
