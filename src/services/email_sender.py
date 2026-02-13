@@ -61,9 +61,21 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
             file_path = next((p for p in candidates if os.path.exists(p)), None)
 
             if file_path and os.path.exists(file_path):
+                # 猜测 MIME 类型
+                import mimetypes
+                content_type, encoding = mimetypes.guess_type(file_path)
+                
+                if content_type is None or encoding is not None:
+                    # No guess could be made, or the file is encoded (compressed), so
+                    # use a generic bag-of-bits type.
+                    content_type = 'application/octet-stream'
+                
+                main_type, sub_type = content_type.split('/', 1)
+
                 with open(file_path, "rb") as attachment:
-                    part = MIMEBase("application", "octet-stream")
+                    part = MIMEBase(main_type, sub_type)
                     part.set_payload(attachment.read())
+                
                 encoders.encode_base64(part)
                 part.add_header(
                     "Content-Disposition",
