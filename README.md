@@ -1,4 +1,4 @@
-# 🔥 Utopai Cold Email Engine (V2.6)
+# 🔥 Utopai Cold Email Engine (V2.12)
 
 专业的冷启动邮件发送引擎，专为 Utopai Studios 定制。集成 LLM 个性化生成、PDF 附件管理、Vercel 邮件追踪和 Gmail SMTP 发送服务。
 
@@ -8,11 +8,14 @@
 - **所见即所得 (V2.5 NEW)**: 预览区不仅可以修改邮件正文，现在还支持直接 **编辑修正 AI 生成的内容** (Project Title/Detail)，修改后自动保存。
 - **高级主题管理 (V2.3 NEW)**: 下拉式选择预设高转化主题，亦可随时切换至自定义模式输入。
 - **B2B/B2C 双模式**: 支持针对企业客户和创作者的不同话术策略与邮件主题配置。
+- **通用 Excel 适配**: 支持任意列名映射，且会自动识别“历史进度与当前文件不一致”并切换为重新开始，避免读错旧任务。
+- **会话级防丢失**: 生成后的内容会缓存到当前会话，切换预览行或触发 rerun 不会把已生成字段清空。
 - **交互增强 (V2.4)**: 实时无延迟的预览更新，以及明确的发送队列状态提示，拒绝盲发。
 - **安全与鲁棒性 (V2.8)**: 
   - **智能随机间隔**: 默认启用 5-10 秒随机发送间隔 (支持自定义范围)，模拟人工操作，显着降低风控风险。
   - **隐私保护**: 自动清洗附件文件名，避免本地路径泄露。
   - **智能同步**: 云端进度备份采用智能限流策略，大批量生成时性能提升显著。
+  - **零配置回退**: 未配置 `PROGRESS_API_KEY` 时自动回退内置 key，并支持双 key 重试。
 - **任务恢复 (V2.2)**: 自动保存发送进度，支持 **断点续传** 或 **重新开始**，不用担心浏览器崩溃。
 - **动态数据映射 (V2.0)**: 上传任意格式 Excel/CSV，智能映射列名。
 
@@ -77,6 +80,29 @@ streamlit run app.py
 ## 📊 邮件追踪服务
 
 本项目依赖 Vercel 服务进行追踪和进度云端备份。详情请见 `email-tracker/README.md`。
+
+## 🧩 稳定性说明
+
+1. `output/` 下进度 CSV 不再纳入 Git 版本控制，避免部署时带入历史快照。
+2. `api/progress` 支持 `B2B`、`B2C`、`user_templates`、`send_history` 四种 mode。
+3. 模板渲染默认支持 `{calendly_link}` 变量，避免预览/发送阶段 `Template Error`。
+4. 附件路径支持“文件名”和“完整路径”两种输入，减少附件读取失败。
+
+## 🛠️ 故障排查
+
+1. 页面提示 `云端进度读取失败（401）`
+   - 含义：Streamlit 与 Vercel 的 key 不一致，系统会回退到本地进度。
+   - 建议：统一 `PROGRESS_API_KEY`（Streamlit Secrets 与 Vercel Env）。
+2. 页面提示 `未配置 PROGRESS_API_KEY`
+   - 含义：未显式配置 key，系统会自动使用 fallback key。
+   - 建议：生产环境仍建议配置正式 `PROGRESS_API_KEY`。
+3. Gmail 报错 `535 Username and Password not accepted`
+   - 含义：Google 认证失败，不是模板逻辑问题。
+   - 建议：确认账号开启 2FA，并重新生成 App Password 后填写。
+
+## 📒 BugFix 记录
+
+详见 `BUGFIX.md`，包含每次修复的症状、根因、修复点与验证方式。
 
 ---
 © 2026 Utopai Studios
