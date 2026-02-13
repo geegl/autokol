@@ -19,6 +19,7 @@ output/autokol_progress_b2b.csv
 output/autokol_progress_b2c.csv
 output/send_history.json
 config/user_templates.json
+config/column_mapping_profiles.json
 email-tracker/.vercel/
 
 # IDE

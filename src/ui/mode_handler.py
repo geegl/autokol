@@ -11,6 +11,7 @@ from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
+from src.utils.mapping_profiles import get_persisted_mapping, save_persisted_mapping
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
@@ -321,16 +322,21 @@ def render_mode_ui(mode, sidebar_config):
         # --- 会话级缓存 (Fix: rerun 时避免回退到原始空白文件) ---
         cache_key = f'working_df_{mode}'
         source_key = f'working_source_{mode}'
+        profile_applied_key = f'profile_applied_source_{mode}'
         source_id = None
+        source_name = ""
         if uploaded_file:
             source_id = f"upload:{uploaded_file.name}:{getattr(uploaded_file, 'size', 0)}"
+            source_name = uploaded_file.name
         elif selected_file:
             source_id = f"local:{selected_file}"
+            source_name = os.path.basename(selected_file)
 
         prev_source = st.session_state.get(source_key)
         if source_id and prev_source != source_id:
             st.session_state[source_key] = source_id
             st.session_state.pop(cache_key, None)
+            st.session_state.pop(profile_applied_key, None)
             # 新文件时重置工作流状态，防止沿用旧任务上下文
             st.session_state[f'decision_{mode}'] = None
             st.session_state[f'leads_confirmed_{mode}'] = False
@@ -354,6 +360,14 @@ def render_mode_ui(mode, sidebar_config):
         mapped_cols = st.session_state[f'col_mapping_{mode}']
         all_columns = df.columns.tolist()
 
+        # --- Persisted Mapping Profile ---
+        if source_id and st.session_state.get(profile_applied_key) != source_id:
+            persisted_mapping = get_persisted_mapping(mode, source_name, all_columns)
+            if persisted_mapping:
+                mapped_cols.update({k: v for k, v in persisted_mapping.items() if v in all_columns})
+                st.toast("✅ 已应用历史列映射模板")
+            st.session_state[profile_applied_key] = source_id
+
         # --- Auto Mapping: Header + Value Heuristic ---
         inferred_mapping = auto_infer_mapping(df, required_cols_map, mapped_cols)
         mapped_cols.update(inferred_mapping)
@@ -367,6 +381,8 @@ def render_mode_ui(mode, sidebar_config):
                 if not st.session_state.get(toast_key):
                     st.toast("✅ 已自动识别并完成列名映射，可直接开始处理")
                     st.session_state[toast_key] = True
+                if source_name:
+                    save_persisted_mapping(mode, source_name, all_columns, mapped_cols)
         
         # --- V2.9.2 Validate Mappings (Fix: Stale columns from previous file) ---
         invalid_keys = []
@@ -442,6 +458,8 @@ def render_mode_ui(mode, sidebar_config):
             
             if st.button("✅ 确认映射并继续", key=f"btn_confirm_map_{mode}", type="primary"):
                 st.session_state[f'col_mapping_confirmed_{mode}'] = True
+                if source_name:
+                    save_persisted_mapping(mode, source_name, all_columns, mapped_cols)
                 st.rerun()
             
             # Block execution if not confirmed
@@ -484,6 +502,31 @@ def render_mode_ui(mode, sidebar_config):
             attach_source = root_attach_dir
             if available_files:
                 st.caption(f"ℹ️ {mode} 专用附件目录为空，已加载通用附件。")
+
+        st.caption(f"📁 当前模式附件目录: {mode_attach_dir}")
+        uploaded_attachments = st.file_uploader(
+            "上传附件到当前模式目录",
+            type=["pdf", "doc", "docx", "ppt", "pptx"],
+            accept_multiple_files=True,
+            key=f"attach_uploader_{mode}"
+        )
+        if uploaded_attachments:
+            if st.button("⬆️ 保存上传附件", key=f"btn_save_attach_{mode}"):
+                saved_names = []
+                for file_obj in uploaded_attachments:
+                    file_name = os.path.basename(file_obj.name)
+                    if not file_name:
+                        continue
+                    target_path = os.path.join(mode_attach_dir, file_name)
+                    with open(target_path, "wb") as f:
+                        f.write(file_obj.getbuffer())
+                    saved_names.append(file_name)
+
+                if saved_names:
+                    st.success(f"✅ 已上传 {len(saved_names)} 个附件: {', '.join(saved_names)}")
+                else:
+                    st.warning("未检测到可保存的附件文件")
+                st.rerun()
 
         # 默认选中配置中的附件 (如果存在)
         default_files = [os.path.basename(f) for f in config['attachments']]

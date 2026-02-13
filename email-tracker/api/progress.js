@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
 
     const { mode, action } = req.query;
 
-    const allowedModes = ['B2B', 'B2C', 'user_templates', 'send_history'];
+    const allowedModes = ['B2B', 'B2C', 'user_templates', 'send_history', 'mapping_profiles'];
     if (!mode || !allowedModes.includes(mode)) {
         return res.status(400).json({ error: `Invalid mode. Must be one of: ${allowedModes.join(', ')}` });
     }
