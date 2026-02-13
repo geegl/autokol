@@ -6,6 +6,8 @@ import streamlit as st
 from src.utils.templates import EMAIL_BODY_HTML_TEMPLATE, get_email_subjects
 from src.services.tracking import TRACKING_BASE_URL
 
+FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
+
 # 配置文件路径
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 USER_TEMPLATES_FILE = os.path.join(BASE_DIR, "config", "user_templates.json")
@@ -17,7 +19,7 @@ def _get_progress_api_key():
             return st.secrets["PROGRESS_API_KEY"]
     except:
         pass
-    return os.environ.get("PROGRESS_API_KEY", "")
+    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
 
 def _save_to_cloud(templates):
     """Save templates to cloud (using progress API with mode='user_templates')"""

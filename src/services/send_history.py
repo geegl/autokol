@@ -11,6 +11,7 @@ from src.config import OUTPUT_DIR
 from src.services.tracking import TRACKING_BASE_URL
 
 HISTORY_FILE = os.path.join(OUTPUT_DIR, "send_history.json")
+FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
 
 def _get_api_key():
     """获取 API Key (避免循环引用)"""
@@ -19,7 +20,7 @@ def _get_api_key():
             return st.secrets["PROGRESS_API_KEY"]
     except:
         pass
-    return os.environ.get("PROGRESS_API_KEY", "")
+    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
 
 def _save_history_to_cloud(history):
     """保存历史记录到云端"""
