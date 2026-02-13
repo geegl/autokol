@@ -505,8 +505,8 @@ def render_mode_ui(mode, sidebar_config):
 
         st.caption(f"📁 当前模式附件目录: {mode_attach_dir}")
         uploaded_attachments = st.file_uploader(
-            "上传附件到当前模式目录",
-            type=["pdf", "doc", "docx", "ppt", "pptx"],
+            "上传附件到当前模式目录 (注意: Gmail 附件限制 <= 25MB)",
+            type=["pdf", "doc", "docx", "ppt", "pptx", "mp4", "mov", "avi"],
             accept_multiple_files=True,
             key=f"attach_uploader_{mode}"
         )
@@ -514,6 +514,10 @@ def render_mode_ui(mode, sidebar_config):
             if st.button("⬆️ 保存上传附件", key=f"btn_save_attach_{mode}"):
                 saved_names = []
                 for file_obj in uploaded_attachments:
+                    # Check size for video files or large files
+                    if file_obj.size > 25 * 1024 * 1024:
+                        st.warning(f"⚠️ 文件 {file_obj.name} ({file_obj.size/1024/1024:.1f}MB) 超过 25MB，可能无法通过 Gmail 发送")
+                        
                     file_name = os.path.basename(file_obj.name)
                     if not file_name:
                         continue
