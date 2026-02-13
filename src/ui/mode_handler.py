@@ -25,6 +25,145 @@ def strip_html_tags(text):
     return re.sub(clean, '', text)
 
 
+def _normalize_col_name(name):
+    """Normalize column name for fuzzy matching."""
+    text = str(name).strip().lower()
+    return re.sub(r'[^a-z0-9\u4e00-\u9fff]+', '', text)
+
+
+def _column_stats(series, sample_size=80):
+    values = []
+    for item in series.head(sample_size).tolist():
+        text = str(item).strip()
+        if text and text.lower() != "nan":
+            values.append(text)
+
+    if not values:
+        return {"email_ratio": 0.0, "avg_len": 0.0, "avg_words": 0.0}
+
+    email_ratio = sum(1 for v in values if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', v)) / len(values)
+    avg_len = sum(len(v) for v in values) / len(values)
+    avg_words = sum(len(v.split()) for v in values) / len(values)
+    return {"email_ratio": email_ratio, "avg_len": avg_len, "avg_words": avg_words}
+
+
+def _score_column(internal_key, col_name, stats):
+    normalized = _normalize_col_name(col_name)
+
+    keyword_map = {
+        "client_name": ["客户名称", "name", "institution", "company", "studio", "channel", "creator", "account", "机构"],
+        "contact_person": ["决策人", "contactperson", "person", "owner", "founder", "producer", "manager", "lead", "decision", "联系人"],
+        "contact_info": ["联系方式", "contact", "email", "mail", "邮箱", "e-mail"],
+        "features": ["核心特征", "feature", "specialty", "direction", "style", "niche", "profile", "合作方向", "特征", "优势"],
+        "pain_point": ["破冰话术要点", "icebreaker", "pain", "hook", "tag", "bundle", "angle", "pitch", "话术", "痛点", "标签"],
+        "pregenerated": ["pregenerated", "pre", "unnamed10", "template", "已有内容", "预生成"]
+    }
+
+    score = 0.0
+    for kw in keyword_map.get(internal_key, []):
+        kw_norm = _normalize_col_name(kw)
+        if not kw_norm:
+            continue
+        if normalized == kw_norm:
+            score = max(score, 100.0)
+        elif kw_norm in normalized:
+            score = max(score, 65.0)
+
+    email_ratio = stats["email_ratio"]
+    avg_len = stats["avg_len"]
+    avg_words = stats["avg_words"]
+
+    if internal_key == "contact_info":
+        score += email_ratio * 120
+        if avg_words <= 2.5:
+            score += 8
+    else:
+        # 对非联系方式字段，邮箱特征越强越不可信
+        score -= email_ratio * 60
+
+    if internal_key == "client_name":
+        if email_ratio < 0.1:
+            score += 18
+        if 2 <= avg_len <= 80:
+            score += 8
+    elif internal_key == "contact_person":
+        if email_ratio < 0.2:
+            score += 12
+        if 1.0 <= avg_words <= 4.5:
+            score += 12
+    elif internal_key == "features":
+        if avg_len >= 8:
+            score += 10
+    elif internal_key == "pain_point":
+        if avg_len >= 12:
+            score += 12
+    elif internal_key == "pregenerated":
+        if avg_len >= 30:
+            score += 10
+
+    return score
+
+
+def auto_infer_mapping(df, required_cols_map, existing_mapping):
+    """Infer mapping from headers + simple value stats."""
+    all_columns = df.columns.tolist()
+    mapped = dict(existing_mapping or {})
+
+    # 保留现有可用映射
+    mapped = {k: v for k, v in mapped.items() if v in all_columns}
+    used_cols = {v for k, v in mapped.items() if k != "contact_person"}
+
+    # 1) 先用默认列名精确匹配
+    for int_key, exp_header in required_cols_map.items():
+        if int_key in mapped:
+            continue
+        if exp_header in all_columns:
+            mapped[int_key] = exp_header
+            if int_key != "contact_person":
+                used_cols.add(exp_header)
+
+    # 2) 模糊打分
+    stats_by_col = {c: _column_stats(df[c]) for c in all_columns}
+    for int_key, exp_header in required_cols_map.items():
+        if int_key in mapped:
+            continue
+        # B2C 的 pregenerated 字段是可选
+        if int_key == "pregenerated" and exp_header == "Unnamed: 10" and exp_header not in all_columns:
+            continue
+
+        best_col = None
+        best_score = float("-inf")
+        for col in all_columns:
+            if col in used_cols and int_key != "contact_person":
+                continue
+            score = _score_column(int_key, col, stats_by_col[col])
+            if score > best_score:
+                best_score = score
+                best_col = col
+
+        # 限制最低可信度，避免完全随机映射
+        if best_col is not None and best_score >= 30:
+            mapped[int_key] = best_col
+            if int_key != "contact_person":
+                used_cols.add(best_col)
+
+    # 3) contact_person 最后兜底到 client_name
+    if "contact_person" in required_cols_map and "contact_person" not in mapped and "client_name" in mapped:
+        mapped["contact_person"] = mapped["client_name"]
+
+    return mapped
+
+
+def is_mapping_complete(required_cols_map, all_columns, mapped_cols):
+    """Whether required keys are fully mapped (excluding optional pregenerated)."""
+    required_keys = []
+    for int_key, exp_header in required_cols_map.items():
+        if int_key == "pregenerated" and exp_header == "Unnamed: 10" and exp_header not in all_columns:
+            continue
+        required_keys.append(int_key)
+    return all(k in mapped_cols and mapped_cols[k] in all_columns for k in required_keys)
+
+
 class _SafeFormatDict(dict):
     """Keep unknown template placeholders as-is instead of raising KeyError."""
     def __missing__(self, key):
@@ -214,6 +353,20 @@ def render_mode_ui(mode, sidebar_config):
             
         mapped_cols = st.session_state[f'col_mapping_{mode}']
         all_columns = df.columns.tolist()
+
+        # --- Auto Mapping: Header + Value Heuristic ---
+        inferred_mapping = auto_infer_mapping(df, required_cols_map, mapped_cols)
+        mapped_cols.update(inferred_mapping)
+
+        # 自动确认（仅在必填字段全部映射完成时）
+        if is_mapping_complete(required_cols_map, all_columns, mapped_cols):
+            if not st.session_state.get(f'col_mapping_confirmed_{mode}', False):
+                st.session_state[f'col_mapping_confirmed_{mode}'] = True
+                source_hint = st.session_state.get(f'working_source_{mode}', 'unknown_source')
+                toast_key = f'auto_mapping_toast_{mode}_{source_hint}'
+                if not st.session_state.get(toast_key):
+                    st.toast("✅ 已自动识别并完成列名映射，可直接开始处理")
+                    st.session_state[toast_key] = True
         
         # --- V2.9.2 Validate Mappings (Fix: Stale columns from previous file) ---
         invalid_keys = []
