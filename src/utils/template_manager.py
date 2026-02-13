@@ -21,31 +21,47 @@ def _get_progress_api_key():
         pass
     return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
 
+
+def _iter_api_keys():
+    """Try configured key first, then fallback key."""
+    primary = _get_progress_api_key()
+    keys = [primary]
+    if primary != FALLBACK_PROGRESS_API_KEY:
+        keys.append(FALLBACK_PROGRESS_API_KEY)
+    return keys
+
 def _save_to_cloud(templates):
     """Save templates to cloud (using progress API with mode='user_templates')"""
     try:
-        api_key = _get_progress_api_key()
-        # Use mode='user_templates' to sequester data
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={api_key}"
-        # API expects {data: [...]} 
-        # For progress (df), data is list of records.
-        # For templates, it is list of dicts. Compatible.
-        response = requests.post(api_url, json={"data": templates}, timeout=10)
-        return response.status_code == 200
+        for key in _iter_api_keys():
+            # Use mode='user_templates' to sequester data
+            api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={key}"
+            # API expects {data: [...]} 
+            # For progress (df), data is list of records.
+            # For templates, it is list of dicts. Compatible.
+            response = requests.post(api_url, json={"data": templates}, timeout=10)
+            if response.status_code == 200:
+                return True
+            if response.status_code != 401:
+                return False
+        return False
     except Exception:
         return False
 
 def _load_from_cloud():
     """Load templates from cloud"""
     try:
-        api_key = _get_progress_api_key()
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={api_key}"
-        response = requests.get(api_url, timeout=10)
-        if response.status_code == 200:
-            result = response.json()
-            # Structure: {success: true, data: {data: [...]}}
-            if result.get('success') and result.get('data') and result['data'].get('data'):
-                return result['data']['data']
+        for key in _iter_api_keys():
+            api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={key}"
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                # Structure: {success: true, data: {data: [...]}}
+                if result.get('success') and result.get('data') and result['data'].get('data'):
+                    return result['data']['data']
+                return None
+            if response.status_code != 401:
+                return None
     except Exception:
         pass
     return None

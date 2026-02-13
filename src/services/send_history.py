@@ -22,14 +22,27 @@ def _get_api_key():
         pass
     return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
 
+
+def _iter_api_keys():
+    """Try configured key first, then fallback key."""
+    primary = _get_api_key()
+    keys = [primary]
+    if primary != FALLBACK_PROGRESS_API_KEY:
+        keys.append(FALLBACK_PROGRESS_API_KEY)
+    return keys
+
 def _save_history_to_cloud(history):
     """保存历史记录到云端"""
     try:
-        api_key = _get_api_key()
-        # use mode='send_history'
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={api_key}"
-        response = requests.post(api_url, json={"data": history}, timeout=5)
-        return response.status_code == 200
+        for key in _iter_api_keys():
+            # use mode='send_history'
+            api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={key}"
+            response = requests.post(api_url, json={"data": history}, timeout=5)
+            if response.status_code == 200:
+                return True
+            if response.status_code != 401:
+                return False
+        return False
     except Exception as e:
         # print(f"Cloud history save failed: {e}")
         return False
@@ -37,13 +50,16 @@ def _save_history_to_cloud(history):
 def _load_history_from_cloud():
     """从云端加载历史记录"""
     try:
-        api_key = _get_api_key()
-        api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={api_key}"
-        response = requests.get(api_url, timeout=5)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('success') and result.get('data') and result['data'].get('data'):
-                return result['data']['data']
+        for key in _iter_api_keys():
+            api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={key}"
+            response = requests.get(api_url, timeout=5)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('success') and result.get('data') and result['data'].get('data'):
+                    return result['data']['data']
+                return None
+            if response.status_code != 401:
+                return None
     except:
         pass
     return None

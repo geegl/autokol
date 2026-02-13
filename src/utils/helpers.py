@@ -101,16 +101,21 @@ def _get_progress_api_key():
         pass
     return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
 
+
+def _iter_api_keys():
+    """Try configured key first, then fallback key."""
+    primary = _get_progress_api_key()
+    keys = [primary]
+    if primary != FALLBACK_PROGRESS_API_KEY:
+        keys.append(FALLBACK_PROGRESS_API_KEY)
+    return keys
+
 def _save_to_cloud(df, mode):
     """保存到云端 Redis（静默失败改为日志警告）"""
     try:
         api_key = _get_progress_api_key()
         data = df.to_dict(orient='records')
-        keys_to_try = [api_key]
-        if api_key != FALLBACK_PROGRESS_API_KEY:
-            keys_to_try.append(FALLBACK_PROGRESS_API_KEY)
-
-        for key in keys_to_try:
+        for key in _iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={key}"
 
             # V2.9.13 Fix: Increase timeout for large payloads
@@ -183,12 +188,7 @@ def load_progress(mode):
 def _load_from_cloud(mode):
     """从云端 Redis 加载进度"""
     try:
-        api_key = _get_progress_api_key()
-        keys_to_try = [api_key]
-        if api_key != FALLBACK_PROGRESS_API_KEY:
-            keys_to_try.append(FALLBACK_PROGRESS_API_KEY)
-
-        for key in keys_to_try:
+        for key in _iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={key}"
             # V2.9.13 Fix: Increase timeout
             response = requests.get(api_url, timeout=15)
@@ -198,6 +198,8 @@ def _load_from_cloud(mode):
                     records = result['data']['data']
                     if records:
                         return pd.DataFrame(records)
+                # Key 已通过认证，但云端暂无数据，不应再误报 401
+                return None
             elif response.status_code != 401:
                 return None
 
