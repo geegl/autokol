@@ -1274,14 +1274,43 @@ def render_mode_ui(mode, sidebar_config):
                     st.session_state[f'sending_{mode}'] = False
                     st.stop()
                 
+                # V2.14 Safety: Initialize or retrieve session counters for Smart Cooling
+                if f'consecutive_sent_{mode}' not in st.session_state:
+                    st.session_state[f'consecutive_sent_{mode}'] = 0
+                
                 queue = st.session_state.get(f'send_queue_{mode}', [])
+                
+                # V2.14 Safety: Smart Cooling Logic (Anti-Spam)
+                # Every 20-30 emails, force a longer pause (2-5 mins) to prevent Gmail lockdown
+                consecutive = st.session_state[f'consecutive_sent_{mode}']
+                if consecutive >= 25: # Trigger around 25 emails
+                    st.session_state[f'consecutive_sent_{mode}'] = 0
+                    
+                    # Generate random cooling time (2 to 5 minutes)
+                    import random
+                    cooling_time = random.randint(120, 300) 
+                    
+                    st.warning(f"🛡️ 安全冷却触发 (Anti-Spam Protection)")
+                    st.info(f"为防止 Gmail 封控，系统将强制暂停 {cooling_time} 秒。请勿关闭页面。")
+                    
+                    progress_text = "Refilling sender reputation tokens..."
+                    cooling_bar = st.progress(0, text=progress_text)
+                    
+                    for i in range(cooling_time):
+                        time.sleep(1)
+                        cooling_bar.progress((i + 1) / cooling_time, text=f"冷却中... {cooling_time - i}s remaining")
+                    
+                    st.success("✅ 冷却完成，继续发送！")
+                    time.sleep(1)
+                    st.rerun()
+
                 if not queue:
                     st.session_state[f'sending_{mode}'] = False
                     st.success("✅ 所有邮件发送完成！")
                 else:
-                    # 取出下一个要发送的
-                    idx = queue.pop(0)
-                    st.session_state[f'send_queue_{mode}'] = queue
+                    # V2.14 Safety: Fix Data Loss Risk (Peek before Pop)
+                    # Don't pop yet! Just peek the index.
+                    idx = queue[0]
                     
                     row = df.loc[idx]
                     # 获取列名 (优先使用映射，否则使用默认)
@@ -1296,6 +1325,11 @@ def render_mode_ui(mode, sidebar_config):
                         df.loc[idx, 'Email_Status'] = "邮箱无效"
                         save_progress(df, mode)
                         st.session_state[cache_key] = df.copy()
+                        
+                        # Safe to remove now
+                        queue.pop(0)
+                        st.session_state[f'send_queue_{mode}'] = queue
+                        
                         time.sleep(0.5)
                         st.rerun()
                     
@@ -1356,12 +1390,18 @@ def render_mode_ui(mode, sidebar_config):
                         if ok:
                             df.loc[idx, 'Email_Status'] = "发送成功"
                             st.success(f"✅ 发送成功: {dest_name}")
+                            st.session_state[f'consecutive_sent_{mode}'] += 1 # Increment cooling counter
                         else:
                             df.loc[idx, 'Email_Status'] = f"发送失败: {msg}"
                             st.error(f"❌ 发送失败: {dest_name} - {msg}")
                         
+                        # Atomic Save: Ensure data is persisted BEFORE removing from queue
                         save_progress(df, mode)
                         st.session_state[cache_key] = df.copy()
+                        
+                        # V2.14 Safety: ONLY remove from queue after successful processing and saving
+                        queue.pop(0)
+                        st.session_state[f'send_queue_{mode}'] = queue
                     
                     # 更新剩余数量显示
                     remaining_count = len(st.session_state.get(f'send_queue_{mode}', []))
@@ -1371,6 +1411,9 @@ def render_mode_ui(mode, sidebar_config):
                     if use_smart_interval:
                         import random
                         # send_interval is a tuple (min, max)
+                        if send_interval[0] < 5:
+                             st.warning("⚠️ 警告：检测到最小间隔 < 5秒。建议调高至 30秒以上以防 Gmail 封号。")
+
                         wait_seconds = random.uniform(send_interval[0], send_interval[1])
                         st.caption(f"⏳ 智能随机等待: {wait_seconds:.1f} 秒...")
                         time.sleep(wait_seconds)
