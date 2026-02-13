@@ -37,6 +37,11 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
     返回: (success: bool, message: str, error_type: str|None)
     """
     try:
+        # 防止输入中含有首尾空格，或 App Password 复制时带空格
+        to_email = (to_email or "").strip()
+        sender_email = (sender_email or "").strip()
+        sender_password = (sender_password or "").replace(" ", "").strip()
+
         msg = MIMEMultipart('alternative')
         msg['From'] = f"{sender_name} <{sender_email}>"
         msg['To'] = to_email
@@ -47,16 +52,22 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
         msg.attach(MIMEText(body_html, 'html'))
         
         # 添加附件
-        for file_name in attachments_list:
-            file_path = os.path.join(ATTACHMENTS_DIR, file_name)
-            if os.path.exists(file_path):
+        for file_name in (attachments_list or []):
+            # 兼容两种输入：文件名（旧逻辑）或完整路径（新附件选择逻辑）
+            candidates = [
+                file_name,
+                os.path.join(ATTACHMENTS_DIR, file_name)
+            ]
+            file_path = next((p for p in candidates if os.path.exists(p)), None)
+
+            if file_path and os.path.exists(file_path):
                 with open(file_path, "rb") as attachment:
                     part = MIMEBase("application", "octet-stream")
                     part.set_payload(attachment.read())
                 encoders.encode_base64(part)
                 part.add_header(
                     "Content-Disposition",
-                    f"attachment; filename= {os.path.basename(file_name)}",
+                    f"attachment; filename= {os.path.basename(file_path)}",
                 )
                 msg.attach(part)
             else:

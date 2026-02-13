@@ -87,6 +87,8 @@ def load_user_templates():
         try:
             with open(USER_TEMPLATES_FILE, 'r', encoding='utf-8') as f:
                 local_templates = json.load(f)
+            if not isinstance(local_templates, list):
+                local_templates = None
         except Exception as e:
             print(f"Warning: Failed to load user templates: {e}")
     
@@ -94,6 +96,8 @@ def load_user_templates():
     # On Streamlit Cloud reboot, local file is gone (or reverted to git commit state which might be empty/default).
     # So we should check Cloud.
     cloud_templates = _load_from_cloud()
+    if cloud_templates is not None and not isinstance(cloud_templates, list):
+        cloud_templates = None
     
     final_templates = local_templates
     
@@ -124,7 +128,7 @@ def load_user_templates():
         defaults = _init_default_templates()
         _save_templates_internal(defaults, sync_cloud=True) # Push default to Cloud to init
         return defaults
-        
+
     return final_templates
 
 def save_user_template(name, subject, body):
@@ -132,6 +136,8 @@ def save_user_template(name, subject, body):
     # Load current templates (local first)
     # We use internal load logic to get latest state
     templates = load_user_templates()
+    if not isinstance(templates, list):
+        templates = _init_default_templates()
     
     # Check if exists
     existing = next((t for t in templates if t["name"] == name), None)
@@ -152,6 +158,8 @@ def delete_user_template(name):
     """Delete a template by name"""
     # Load current templates
     current_templates = load_user_templates()
+    if not isinstance(current_templates, list):
+        current_templates = _init_default_templates()
     new_templates = [t for t in current_templates if t["name"] != name]
     
     return _save_templates_internal(new_templates, sync_cloud=True)

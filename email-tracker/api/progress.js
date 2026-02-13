@@ -37,8 +37,9 @@ module.exports = async (req, res) => {
 
     const { mode, action } = req.query;
 
-    if (!mode || !['B2B', 'B2C'].includes(mode)) {
-        return res.status(400).json({ error: 'Invalid mode. Must be B2B or B2C' });
+    const allowedModes = ['B2B', 'B2C', 'user_templates', 'send_history'];
+    if (!mode || !allowedModes.includes(mode)) {
+        return res.status(400).json({ error: `Invalid mode. Must be one of: ${allowedModes.join(', ')}` });
     }
 
     const key = `progress_${mode}`;

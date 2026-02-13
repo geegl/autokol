@@ -9,7 +9,6 @@ import re
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
-from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
@@ -17,17 +16,54 @@ from src.services.email_sender import send_email_gmail
 from src.services.content_gen import generate_content_for_row
 from src.services.send_history import save_send_record, get_today_stats
 
+DEFAULT_CALENDLY_LINK = "https://calendly.com/cecilia-utopaistudios/30min"
+
+
 def strip_html_tags(text):
     """Remove html tags from a string"""
     clean = re.compile('<.*?>')
     return re.sub(clean, '', text)
+
+
+class _SafeFormatDict(dict):
+    """Keep unknown template placeholders as-is instead of raising KeyError."""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def format_template_html(template_html, **kwargs):
+    """Safely format user template and avoid hard failure on missing placeholders."""
+    try:
+        return template_html.format_map(_SafeFormatDict(kwargs))
+    except Exception as e:
+        return f"<p style='color:red'>Template Error: {e}</p>"
+
+
+def get_preview_row_label(df, row_index, preferred_col):
+    """Build a resilient preview label even if mapped column is missing."""
+    row = df.loc[row_index]
+    value = row.get(preferred_col, "") if preferred_col in df.columns else ""
+    text = str(value).strip()
+
+    if not text or text.lower() == "nan":
+        for item in row.tolist():
+            item_text = str(item).strip()
+            if item_text and item_text.lower() != "nan":
+                text = item_text
+                break
+
+    if not text:
+        text = "(无可用名称)"
+
+    return f"Row {row_index+1}: {text}"
+
 
 def wrap_html_content(html_content, calendly_link="", tracking_pixel=""):
     """Wrap HTML fragment in a full email structure without escaping"""
     
     # Replace calendly link if needed (V2.10.4 Fix: Use Regex to replace safely inside href)
     if calendly_link:
-        target_url = "https://calendly.com/cecilia-utopaistudios/30min"
+        target_url = DEFAULT_CALENDLY_LINK
         
         # 1. Replace inside href attributes (e.g. from Quill)
         pattern = r'(href=["\'])' + re.escape(target_url) + r'(["\'])'
@@ -76,7 +112,7 @@ def text_to_html(text, calendly_link="", tracking_pixel=""):
     # 如果有 calendly 链接，替换为可点击链接
     if calendly_link:
         body_content = body_content.replace(
-            'https://calendly.com/cecilia-utopaistudios/30min',
+            DEFAULT_CALENDLY_LINK,
             f'<a href="{calendly_link}">Book a meeting</a>'
         )
     
@@ -565,7 +601,7 @@ def render_mode_ui(mode, sidebar_config):
 
 
         with st.expander("📝 编辑邮件模板", expanded=False):
-            st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`")
+            st.caption("可用变量: `{creator_name}`, `{sender_name}`, `{project_title}`, `{technical_detail}`, `{sender_title}`, `{calendly_link}`")
             
             # --- V2.10 模板选择器 ---
             # 1. Template Selector
@@ -688,7 +724,11 @@ def render_mode_ui(mode, sidebar_config):
             
             # 获取映射后的列名
             c_client = final_mapping.get('client_name', config['columns']['client_name'])
-            selected_index = st.selectbox("选择预览行", ready_indices, format_func=lambda x: f"Row {x+1}: {df.loc[x, c_client]}")
+            selected_index = st.selectbox(
+                "选择预览行",
+                ready_indices,
+                format_func=lambda x: get_preview_row_label(df, x, c_client)
+            )
             
             # 获取当前行数据
             current_row = df.loc[selected_index]
@@ -726,7 +766,7 @@ def render_mode_ui(mode, sidebar_config):
             
             # 预览时不使用真实追踪 URL (传入 None)，防止触发真实的打开记录
             tracking_pixel = generate_tracking_pixel(preview_email_id, None)  # 返回空字符串
-            tracked_calendly = "https://calendly.com/cecilia-utopaistudios/30min"  # 预览时用原始链接
+            tracked_calendly = DEFAULT_CALENDLY_LINK  # 预览时用原始链接
             
             # 预览内容清洗 (防止 nan)
             p_title = str(current_row.get('AI_Project_Title', ''))
@@ -739,12 +779,15 @@ def render_mode_ui(mode, sidebar_config):
             
             # Format the HTML template
             try:
-                email_body_preview_html = user_template.format(
+                email_body_preview_html = format_template_html(
+                    user_template,
                     creator_name=english_name,
                     sender_name=sidebar_config['sender_name'],
                     project_title=p_title,
                     technical_detail=t_detail,
-                    sender_title=sidebar_config['sender_title']
+                    sender_title=sidebar_config['sender_title'],
+                    calendly_link=tracked_calendly,
+                    tracking_pixel=""
                 )
             except Exception as e:
                 email_body_preview_html = f"<p style='color:red'>Template Error: {e}</p>"
@@ -755,7 +798,7 @@ def render_mode_ui(mode, sidebar_config):
             # Create Final HTML (Wrapped)
             final_html = wrap_html_content(
                 email_body_preview_html, 
-                config.get('calendly_link', "https://calendly.com/cecilia-utopaistudios/30min"),
+                config.get('calendly_link', DEFAULT_CALENDLY_LINK),
                 tracking_pixel if sidebar_config.get('tracking_url') else "<!-- Tracking Pixel Placeholder -->"
             )
             
@@ -794,19 +837,22 @@ def render_mode_ui(mode, sidebar_config):
                             
                             # 生成用于发送的内容
                             final_pixel = generate_tracking_pixel(test_id, sidebar_config.get('tracking_url'))
-                            final_link = generate_tracked_link(test_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
+                            final_link = generate_tracked_link(test_id, DEFAULT_CALENDLY_LINK, sidebar_config.get('tracking_url'))
                             
                             # Use the HTML template from session state
                             user_template_html = st.session_state.get(f'email_body_{mode}', plain_to_quill_html(EMAIL_BODY_TEMPLATE))
                             
                             # Format the HTML template
                             try:
-                                formatted_body_html = user_template_html.format(
+                                formatted_body_html = format_template_html(
+                                    user_template_html,
                                     creator_name=english_name,
                                     sender_name=sidebar_config['sender_name'],
                                     project_title=p_title,
                                     technical_detail=t_detail,
-                                    sender_title=sidebar_config['sender_title']
+                                    sender_title=sidebar_config['sender_title'],
+                                    calendly_link=final_link,
+                                    tracking_pixel=final_pixel
                                 )
                             except Exception as e:
                                 formatted_body_html = f"<p style='color:red'>Template Error: {e}</p>"
@@ -827,7 +873,7 @@ def render_mode_ui(mode, sidebar_config):
                             success, msg, error_type = send_email_gmail(
                                 test_email, user_subject, formatted_body_text, final_html_to_send,
                                 sidebar_config['email_user'], sidebar_config['email_pass'],
-                                sidebar_config['sender_name'], mode, config['attachments']
+                                sidebar_config['sender_name'], mode, final_attachments
                             )
                             
                             # 保存发送记录
@@ -990,19 +1036,22 @@ def render_mode_ui(mode, sidebar_config):
                         # 生成追踪内容
                         real_id = generate_email_id(mode, idx, dest_email, dest_name)
                         real_pixel = generate_tracking_pixel(real_id, sidebar_config.get('tracking_url'))
-                        real_link = generate_tracked_link(real_id, "https://calendly.com/cecilia-utopaistudios/30min", sidebar_config.get('tracking_url'))
+                        real_link = generate_tracked_link(real_id, DEFAULT_CALENDLY_LINK, sidebar_config.get('tracking_url'))
                         
                         # 使用用户编辑的模板 (HTML)
                         # Fallback to HTML converted default if not in session state
                         user_template_html = st.session_state.get(f'email_body_{mode}', plain_to_quill_html(EMAIL_BODY_TEMPLATE))
                         
                         try:
-                            formatted_body_html = user_template_html.format(
+                            formatted_body_html = format_template_html(
+                                user_template_html,
                                 creator_name=dest_name,
                                 sender_name=sidebar_config['sender_name'],
                                 project_title=row['AI_Project_Title'],
                                 technical_detail=row['AI_Technical_Detail'],
-                                sender_title=sidebar_config['sender_title']
+                                sender_title=sidebar_config['sender_title'],
+                                calendly_link=real_link,
+                                tracking_pixel=real_pixel
                             )
                         except Exception as e:
                             # Fallback if formatting fails
@@ -1065,4 +1114,3 @@ def render_mode_ui(mode, sidebar_config):
             if st.session_state[f'paused_{mode}']:
                 remaining_count = len(st.session_state.get(f'send_queue_{mode}', []))
                 st.warning(f"⏸️ 发送已暂停，队列剩余 {remaining_count} 封。点击「继续」恢复发送。")
-
