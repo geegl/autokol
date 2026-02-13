@@ -179,6 +179,27 @@ def render_mode_ui(mode, sidebar_config):
             return
 
     if df is not None:
+        # --- 会话级缓存 (Fix: rerun 时避免回退到原始空白文件) ---
+        cache_key = f'working_df_{mode}'
+        source_key = f'working_source_{mode}'
+        source_id = None
+        if uploaded_file:
+            source_id = f"upload:{uploaded_file.name}:{getattr(uploaded_file, 'size', 0)}"
+        elif selected_file:
+            source_id = f"local:{selected_file}"
+
+        prev_source = st.session_state.get(source_key)
+        if source_id and prev_source != source_id:
+            st.session_state[source_key] = source_id
+            st.session_state.pop(cache_key, None)
+            # 新文件时重置工作流状态，防止沿用旧任务上下文
+            st.session_state[f'decision_{mode}'] = None
+            st.session_state[f'leads_confirmed_{mode}'] = False
+
+        cached_df = st.session_state.get(cache_key)
+        if isinstance(cached_df, pd.DataFrame) and len(cached_df) == len(df):
+            df = cached_df.copy()
+
         # --- 2. 动态列映射 (V2.9 Refactor: Internal Keys) ---
         # 使用 items() 获取内部 key (client_name) 和 预期 Header (Name)
         required_cols_map = config["columns"]
@@ -388,6 +409,7 @@ def render_mode_ui(mode, sidebar_config):
                 with col_restart:
                     if st.button("🆕 重新开始 (使用此时上传的文件)", key=f"btn_restart_{mode}", use_container_width=True):
                         st.session_state[f'decision_{mode}'] = 'restart'
+                        st.session_state.pop(cache_key, None)
                         st.rerun()
                 
                 st.stop() # 等待用户选择
@@ -441,6 +463,7 @@ def render_mode_ui(mode, sidebar_config):
                     # 如果选择了重新开始，这里可以考虑清除旧进度文件，或者在 save_progress 时覆盖
                     if st.session_state.get(f'decision_{mode}') == 'restart':
                          clear_progress(mode) # 自定义清除函数，或者是 save_progress 覆盖
+                         st.session_state.pop(cache_key, None)
                     st.rerun()
                 
                 st.info("💡 请确认数据无误后点击上方按钮开始处理。")
@@ -461,6 +484,7 @@ def render_mode_ui(mode, sidebar_config):
             df['Email_Status'] = "待生成"
         if 'Content_Source' not in df.columns:
             df['Content_Source'] = ""
+        st.session_state[cache_key] = df.copy()
         
         # --- 3. 数据预览与编辑 ---
         st.subheader("🛠️ 客户数据预览")
@@ -485,6 +509,7 @@ def render_mode_ui(mode, sidebar_config):
         # 同步编辑结果
         if not edited_df.equals(df):
             save_progress(edited_df, mode)
+            st.session_state[cache_key] = edited_df.copy()
             df = edited_df
 
         # --- 4. 批量生成内容 ---
@@ -559,6 +584,7 @@ def render_mode_ui(mode, sidebar_config):
                 
                 # Switch decision to 'continue' so next rerun loads the progress we just made!
                 st.session_state[f'decision_{mode}'] = 'continue'
+                st.session_state[cache_key] = df.copy()
                 
                 # Increment version to force DataEditor refresh
                 st.session_state[f'gen_version_{mode}'] += 1
@@ -568,6 +594,9 @@ def render_mode_ui(mode, sidebar_config):
         with col_clear:
             if st.button("🗑️ 清空进度", key=f"btn_clear_{mode}"):
                 clear_progress(mode)
+                st.session_state.pop(cache_key, None)
+                st.session_state[f'decision_{mode}'] = None
+                st.session_state[f'leads_confirmed_{mode}'] = False
                 st.rerun()
 
         st.divider()
@@ -776,6 +805,7 @@ def render_mode_ui(mode, sidebar_config):
             if new_p_title != current_row['AI_Project_Title']:
                 df.loc[selected_index, 'AI_Project_Title'] = new_p_title
                 save_progress(df, mode)
+                st.session_state[cache_key] = df.copy()
                 st.rerun()
                 
             # Technical Detail 编辑逻辑
@@ -783,6 +813,7 @@ def render_mode_ui(mode, sidebar_config):
             if new_t_detail != current_row['AI_Technical_Detail']:
                 df.loc[selected_index, 'AI_Technical_Detail'] = new_t_detail
                 save_progress(df, mode)
+                st.session_state[cache_key] = df.copy()
                 st.rerun()
         
         with col_preview:
@@ -1064,6 +1095,7 @@ def render_mode_ui(mode, sidebar_config):
                         st.warning(f"跳过第 {idx+1} 行: 无法提取邮箱")
                         df.loc[idx, 'Email_Status'] = "邮箱无效"
                         save_progress(df, mode)
+                        st.session_state[cache_key] = df.copy()
                         time.sleep(0.5)
                         st.rerun()
                     
@@ -1129,6 +1161,7 @@ def render_mode_ui(mode, sidebar_config):
                             st.error(f"❌ 发送失败: {dest_name} - {msg}")
                         
                         save_progress(df, mode)
+                        st.session_state[cache_key] = df.copy()
                     
                     # 更新剩余数量显示
                     remaining_count = len(st.session_state.get(f'send_queue_{mode}', []))
