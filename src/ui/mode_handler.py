@@ -335,6 +335,41 @@ def render_mode_ui(mode, sidebar_config):
         # 初始化决策状态 (Resume or New)
         if f'decision_{mode}' not in st.session_state:
             st.session_state[f'decision_{mode}'] = None # 'continue' or 'restart'
+
+        # 自动判断“历史进度是否来自同一份文件”
+        # 规则：行数不一致，或基础列重叠过低 -> 判定为旧任务，默认走 restart。
+        if (
+            progress_df is not None
+            and isinstance(progress_df, pd.DataFrame)
+            and len(progress_df) > 0
+            and st.session_state[f'decision_{mode}'] is None
+        ):
+            current_rows = len(df)
+            progress_rows = len(progress_df)
+
+            generated_cols = {
+                "AI_Project_Title",
+                "AI_Technical_Detail",
+                "Email_Status",
+                "Content_Source",
+                "Full_Email",
+                "Send_Status",
+                "Selected"
+            }
+            current_cols = set(df.columns)
+            progress_base_cols = set(progress_df.columns) - generated_cols
+
+            overlap = len(current_cols & progress_base_cols)
+            min_cols = max(1, min(len(current_cols), len(progress_base_cols)))
+            overlap_ratio = overlap / min_cols
+
+            if current_rows != progress_rows or overlap_ratio < 0.7:
+                st.warning(
+                    f"⚠️ 检测到历史进度与当前文件不一致（历史 {progress_rows} 行 / 当前 {current_rows} 行）。"
+                    "已自动切换为“重新开始（使用当前上传文件）”。"
+                )
+                st.session_state[f'decision_{mode}'] = 'restart'
+                st.session_state[f'leads_confirmed_{mode}'] = False
         
         # 如果检测到进度，且未做决定，显示选择界面
         if progress_df is not None and st.session_state[f'decision_{mode}'] is None:

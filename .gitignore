@@ -14,6 +14,12 @@ streamlit.log
 # 进度文件 (包含敏感数据)
 *_progress.json
 kol_*.csv
+autokol_progress.csv
+output/autokol_progress_b2b.csv
+output/autokol_progress_b2c.csv
+output/send_history.json
+config/user_templates.json
+email-tracker/.vercel/
 
 # IDE
 .idea/

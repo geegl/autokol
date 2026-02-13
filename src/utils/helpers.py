@@ -6,6 +6,14 @@ import streamlit as st
 from src.config import MODE_CONFIG
 from src.services.tracking import TRACKING_BASE_URL
 
+
+def _warn_once(key, message):
+    """Show a warning only once per Streamlit session to avoid noisy reruns."""
+    state_key = f"_warn_once_{key}"
+    if not st.session_state.get(state_key):
+        st.warning(message)
+        st.session_state[state_key] = True
+
 def extract_email(contact_str):
     """从联系方式字符串中提取邮箱地址"""
     if pd.isna(contact_str):
@@ -95,6 +103,13 @@ def _save_to_cloud(df, mode):
     """保存到云端 Redis（静默失败改为日志警告）"""
     try:
         api_key = _get_progress_api_key()
+        if not api_key:
+            _warn_once(
+                "progress_api_key_missing_save",
+                "⚠️ 未配置 PROGRESS_API_KEY，当前仅保存到本地临时文件。重启/部署后可能丢失进度。"
+            )
+            return False
+
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         data = df.to_dict(orient='records')
         
@@ -102,6 +117,12 @@ def _save_to_cloud(df, mode):
         response = requests.post(api_url, json={"data": data}, timeout=15)
         if response.status_code == 200:
             return True
+        if response.status_code == 401:
+            _warn_once(
+                "progress_api_key_unauthorized_save",
+                "⚠️ 云端进度保存失败：PROGRESS_API_KEY 与 Vercel 不匹配（401）。当前仅保存到本地。"
+            )
+            return False
         else:
             # st.toast(f"Cloud Save Failed: {response.status_code}") # Optional debug
             return False
@@ -164,6 +185,13 @@ def _load_from_cloud(mode):
     """从云端 Redis 加载进度"""
     try:
         api_key = _get_progress_api_key()
+        if not api_key:
+            _warn_once(
+                "progress_api_key_missing_load",
+                "⚠️ 未配置 PROGRESS_API_KEY，无法从云端恢复进度。"
+            )
+            return None
+
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         # V2.9.13 Fix: Increase timeout
         response = requests.get(api_url, timeout=15)
@@ -173,6 +201,11 @@ def _load_from_cloud(mode):
                 records = result['data']['data']
                 if records:
                     return pd.DataFrame(records)
+        elif response.status_code == 401:
+            _warn_once(
+                "progress_api_key_unauthorized_load",
+                "⚠️ 云端进度读取失败：PROGRESS_API_KEY 与 Vercel 不匹配（401）。正在使用本地进度。"
+            )
     except Exception as e:
         # st.warning(f"云端加载失败: {e}")
         pass
