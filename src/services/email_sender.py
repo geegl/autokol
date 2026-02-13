@@ -65,6 +65,16 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
                 import mimetypes
                 content_type, encoding = mimetypes.guess_type(file_path)
                 
+                # V2.12.2 Fix: Explicit fallback for common video types if mimetypes fails
+                if content_type is None:
+                    ext = os.path.splitext(file_path)[1].lower()
+                    if ext == '.mp4':
+                        content_type = 'video/mp4'
+                    elif ext == '.mov':
+                        content_type = 'video/quicktime'
+                    elif ext == '.avi':
+                        content_type = 'video/x-msvideo'
+                
                 if content_type is None or encoding is not None:
                     # No guess could be made, or the file is encoded (compressed), so
                     # use a generic bag-of-bits type.
