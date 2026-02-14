@@ -37,7 +37,33 @@ def extract_english_name(name_str):
     name = re.sub(r'[\u4e00-\u9fff]+', '', name)
     # 清理多余空格
     name = ' '.join(name.split()).strip()
+    name = ' '.join(name.split()).strip()
     return name if name else "there"
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def load_source_file(file_path_or_buffer):
+    """
+    Cached file loader to optimize memory usage (V2.16 Optimization).
+    Supports: str (filepath), BytesIO (uploaded file)
+    """
+    try:
+        if isinstance(file_path_or_buffer, str):
+            # Local File
+            if file_path_or_buffer.endswith('.csv'):
+                return pd.read_csv(file_path_or_buffer)
+            else:
+                return pd.read_excel(file_path_or_buffer)
+        else:
+            # Uploaded File (BytesIO)
+            # Retrieve name property if available (Streamlit UploadedFile)
+            name = getattr(file_path_or_buffer, 'name', '')
+            if name.endswith('.csv'):
+                return pd.read_csv(file_path_or_buffer)
+            else:
+                return pd.read_excel(file_path_or_buffer)
+    except Exception as e:
+        raise e
 
 
 import tempfile

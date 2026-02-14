@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+import gc # V2.16 Memory Optimization
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from streamlit_quill import st_quill
 import re
 
 from src.config import MODE_CONFIG, LEADS_DIR
-from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name
+from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name, load_source_file
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
 from src.utils.mapping_profiles import get_persisted_mapping, save_persisted_mapping
@@ -301,20 +302,17 @@ def render_mode_ui(mode, sidebar_config):
     # 确定数据源
     if uploaded_file:
         try:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
+            # V2.16 Memory Opt: Use cached loader
+            df = load_source_file(uploaded_file)
         except Exception as e:
             st.error(f"读取上传文件失败: {e}")
             return
+            
     elif selected_file:
         try:
             st.info(f"正在加载: {selected_file}")
-            if selected_file.endswith('.csv'):
-                df = pd.read_csv(selected_file)
-            else:
-                df = pd.read_excel(selected_file)
+            # V2.16 Memory Opt: Use cached loader
+            df = load_source_file(selected_file)
         except Exception as e:
             st.error(f"读取本地文件失败: {e}")
             return
@@ -341,6 +339,9 @@ def render_mode_ui(mode, sidebar_config):
             # 新文件时重置工作流状态，防止沿用旧任务上下文
             st.session_state[f'decision_{mode}'] = None
             st.session_state[f'leads_confirmed_{mode}'] = False
+            
+            # V2.16 Memory Opt: Explicit GC when switching source
+            gc.collect()
 
         cached_df = st.session_state.get(cache_key)
         if isinstance(cached_df, pd.DataFrame) and len(cached_df) == len(df):
