@@ -11,12 +11,25 @@ def render_sidebar():
         config['base_url'] = st.text_input("Base URL", value="https://api.siliconflow.cn/v1", key="sidebar_base_url")
         config['model_name'] = st.text_input("Model Name", value="deepseek-ai/DeepSeek-V3.2", key="sidebar_model_name")
         
-        st.subheader("2. 邮箱设置 (Gmail)")
-        st.caption("使用 Google Workspace / Gmail SMTP")
-        config['email_provider'] = "Gmail" # 强制 Gmail
+        st.subheader("2. 邮箱设置 (Email Service)")
+        # V2.15: Dual Provider Support
+        provider = st.selectbox(
+            "选择邮件服务商", 
+            ["Gmail (SMTP)", "SendGrid (API)"],
+            index=0,
+            help="Gmail: 适合个人低频发送 (每日 < 500)\nSendGrid: 适合大规模群发 (稳定防封)",
+            key="sidebar_email_provider_select"
+        )
+        config['email_provider'] = "SendGrid" if "SendGrid" in provider else "Gmail"
         
-        config['email_user'] = st.text_input("发件人邮箱地址", help="例如: growth@utopaistudios.com", key="sidebar_email_user")
-        config['email_pass'] = st.text_input("应用专用密码", type="password", help="在 Google 账户 → 安全性 → 两步验证 → 应用专用密码 中生成", key="sidebar_email_pass")
+        if config['email_provider'] == "Gmail":
+            st.caption("使用 Google Workspace / Gmail SMTP")
+            config['email_user'] = st.text_input("发件人邮箱地址", help="例如: growth@utopaistudios.com", key="sidebar_email_user")
+            config['email_pass'] = st.text_input("应用专用密码", type="password", help="在 Google 账户 → 安全性 → 两步验证 → 应用专用密码 中生成", key="sidebar_email_pass")
+        else:
+            st.caption("使用 SendGrid API (推荐大规模发送)")
+            config['sendgrid_api_key'] = st.text_input("SendGrid API Key", type="password", help="Starts with SG...", key="sidebar_sendgrid_key")
+            config['sendgrid_sender'] = st.text_input("已验证的发件人身份 (Verified Sender)", help="必须与 SendGrid 后台验证的 Sender Identity 一致", key="sidebar_sendgrid_sender")
         
         st.subheader("3. 发件人信息")
         config['sender_name'] = st.text_input("Your Name", value="Cecilia", key="sidebar_sender_name")

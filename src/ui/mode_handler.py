@@ -13,11 +13,12 @@ from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_B
 from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
 from src.utils.mapping_profiles import get_persisted_mapping, save_persisted_mapping
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
-from src.services.email_sender import send_email_gmail
+from src.services.email_sender import send_email_gmail, send_email_sendgrid
 from src.services.content_gen import generate_content_for_row
 from src.services.send_history import save_send_record, get_today_stats
 
 DEFAULT_CALENDLY_LINK = "https://calendly.com/cecilia-utopaistudios/30min"
+
 
 
 def strip_html_tags(text):
@@ -1094,10 +1095,18 @@ def render_mode_ui(mode, sidebar_config):
                 if not test_email:
                     st.error("请输入测试邮箱")
                 else:
-                    if not sidebar_config.get('email_user') or not sidebar_config.get('email_pass'):
-                        st.error("请先在左侧配置 Gmail 账号和应用专用密码")
-                    else:
-                        with st.spinner("正在发送测试邮件..."):
+                    # V2.15 Provider Check
+                    provider = sidebar_config.get('email_provider', 'Gmail')
+                    if provider == 'Gmail':
+                        if not sidebar_config.get('email_user') or not sidebar_config.get('email_pass'):
+                            st.error("请先在左侧配置 Gmail 账号和应用专用密码")
+                            st.stop()
+                    else: # SendGrid
+                        if not sidebar_config.get('sendgrid_api_key') or not sidebar_config.get('sendgrid_sender'):
+                            st.error("请先在左侧配置 SendGrid API Key 和 Verified Sender")
+                            st.stop()
+
+                    with st.spinner("正在发送测试邮件..."):
                             # 测试邮件使用真实的追踪 ID
                             test_id = generate_email_id(mode, selected_index, test_email, f"Test_{english_name}")
                             
@@ -1136,11 +1145,19 @@ def render_mode_ui(mode, sidebar_config):
                             # 使用用户编辑的主题
                             user_subject = st.session_state.get(f'email_subject_final_{mode}', "Subject Error")
                             
-                            success, msg, error_type = send_email_gmail(
-                                test_email, user_subject, formatted_body_text, final_html_to_send,
-                                sidebar_config['email_user'], sidebar_config['email_pass'],
-                                sidebar_config['sender_name'], mode, final_attachments
-                            )
+                            if provider == 'SendGrid':
+                                success, msg, error_type = send_email_sendgrid(
+                                    test_email, user_subject, formatted_body_text, final_html_to_send,
+                                    sidebar_config.get('sendgrid_api_key'),
+                                    sidebar_config.get('sendgrid_sender'),
+                                    sidebar_config['sender_name'], mode, final_attachments
+                                )
+                            else:
+                                success, msg, error_type = send_email_gmail(
+                                    test_email, user_subject, formatted_body_text, final_html_to_send,
+                                    sidebar_config['email_user'], sidebar_config['email_pass'],
+                                    sidebar_config['sender_name'], mode, final_attachments
+                                )
                             
                             # 保存发送记录
                             save_send_record(
@@ -1269,10 +1286,18 @@ def render_mode_ui(mode, sidebar_config):
             
             # 发送逻辑
             if st.session_state[f'sending_{mode}'] and not st.session_state[f'paused_{mode}']:
-                if not sidebar_config.get('email_user') or not sidebar_config.get('email_pass'):
-                    st.error("请先配置 Gmail 发件人信息")
-                    st.session_state[f'sending_{mode}'] = False
-                    st.stop()
+                # V2.15 Provider Check
+                provider = sidebar_config.get('email_provider', 'Gmail')
+                if provider == 'Gmail':
+                    if not sidebar_config.get('email_user') or not sidebar_config.get('email_pass'):
+                        st.error("请先配置 Gmail 发件人信息")
+                        st.session_state[f'sending_{mode}'] = False
+                        st.stop()
+                else: # SendGrid
+                    if not sidebar_config.get('sendgrid_api_key') or not sidebar_config.get('sendgrid_sender'):
+                        st.error("请先配置 SendGrid API Key 和 Verified Sender")
+                        st.session_state[f'sending_{mode}'] = False
+                        st.stop()
                 
                 # V2.14 Safety: Initialize or retrieve session counters for Smart Cooling
                 if f'consecutive_sent_{mode}' not in st.session_state:
@@ -1282,27 +1307,32 @@ def render_mode_ui(mode, sidebar_config):
                 
                 # V2.14 Safety: Smart Cooling Logic (Anti-Spam)
                 # Every 20-30 emails, force a longer pause (2-5 mins) to prevent Gmail lockdown
-                consecutive = st.session_state[f'consecutive_sent_{mode}']
-                if consecutive >= 25: # Trigger around 25 emails
-                    st.session_state[f'consecutive_sent_{mode}'] = 0
-                    
-                    # Generate random cooling time (2 to 5 minutes)
-                    import random
-                    cooling_time = random.randint(120, 300) 
-                    
-                    st.warning(f"🛡️ 安全冷却触发 (Anti-Spam Protection)")
-                    st.info(f"为防止 Gmail 封控，系统将强制暂停 {cooling_time} 秒。请勿关闭页面。")
-                    
-                    progress_text = "Refilling sender reputation tokens..."
-                    cooling_bar = st.progress(0, text=progress_text)
-                    
-                    for i in range(cooling_time):
+                # NOTE: For SendGrid, we might relax this? 
+                # Let's keep it for safety unless user explicitly disables it, but maybe relax for SendGrid?
+                # Actually, SendGrid has higher limits (12k/day free). 
+                # Let's SKIP smart cooling/pausing if provider is SendGrid!
+                if provider == 'Gmail':
+                    consecutive = st.session_state[f'consecutive_sent_{mode}']
+                    if consecutive >= 25: # Trigger around 25 emails
+                        st.session_state[f'consecutive_sent_{mode}'] = 0
+                        # ... (Rest of cooling logic) ...
+                        # Generate random cooling time (2 to 5 minutes)
+                        import random
+                        cooling_time = random.randint(120, 300) 
+                        
+                        st.warning(f"🛡️ 安全冷却触发 (Anti-Spam Protection)")
+                        st.info(f"为防止 Gmail 封控，系统将强制暂停 {cooling_time} 秒。请勿关闭页面。")
+                        
+                        progress_text = "Refilling sender reputation tokens..."
+                        cooling_bar = st.progress(0, text=progress_text)
+                        
+                        for i in range(cooling_time):
+                            time.sleep(1)
+                            cooling_bar.progress((i + 1) / cooling_time, text=f"冷却中... {cooling_time - i}s remaining")
+                        
+                        st.success("✅ 冷却完成，继续发送！")
                         time.sleep(1)
-                        cooling_bar.progress((i + 1) / cooling_time, text=f"冷却中... {cooling_time - i}s remaining")
-                    
-                    st.success("✅ 冷却完成，继续发送！")
-                    time.sleep(1)
-                    st.rerun()
+                        st.rerun()
 
                 if not queue:
                     st.session_state[f'sending_{mode}'] = False
@@ -1372,11 +1402,19 @@ def render_mode_ui(mode, sidebar_config):
                         # 使用用户编辑的主题
                         user_subject = st.session_state.get(f'email_subject_final_{mode}', "Subject Error")
                         
-                        ok, msg, error_type = send_email_gmail(
-                            dest_email, user_subject, body_txt, body_html,
-                            sidebar_config['email_user'], sidebar_config['email_pass'],
-                            sidebar_config['sender_name'], mode, final_attachments
-                        )
+                        if provider == 'SendGrid':
+                             ok, msg, error_type = send_email_sendgrid(
+                                dest_email, user_subject, body_txt, body_html,
+                                sidebar_config.get('sendgrid_api_key'),
+                                sidebar_config.get('sendgrid_sender'),
+                                sidebar_config['sender_name'], mode, final_attachments
+                            )
+                        else:
+                            ok, msg, error_type = send_email_gmail(
+                                dest_email, user_subject, body_txt, body_html,
+                                sidebar_config['email_user'], sidebar_config['email_pass'],
+                                sidebar_config['sender_name'], mode, final_attachments
+                            )
                         
                         save_send_record(
                             recipient_email=dest_email,

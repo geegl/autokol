@@ -115,3 +115,77 @@ def send_email_gmail(to_email, subject, body_text, body_html, sender_email, send
     except Exception as e:
         error_type = classify_error(str(e))
         return False, f"❌ {str(e)}", error_type
+
+
+def send_email_sendgrid(to_email, subject, body_text, body_html, api_key, sender_email, sender_name, mode, attachments_list):
+    """
+    通过 SendGrid API 发送邮件 (V2.15 New Provider)
+    
+    Args:
+        sender_email: Verified Sender Identity in SendGrid
+        api_key: SendGrid API Key (starts with SG.)
+    """
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
+    import base64
+    import mimetypes
+
+    try:
+        # Construct Email Object
+        message = Mail(
+            from_email=(sender_email, sender_name),
+            to_emails=to_email,
+            subject=subject,
+            html_content=body_html,
+            plain_text_content=body_text
+        )
+        
+        # Attachments
+        for file_name in (attachments_list or []):
+            candidates = [file_name, os.path.join(ATTACHMENTS_DIR, file_name)]
+            file_path = next((p for p in candidates if os.path.exists(p)), None)
+            
+            if file_path:
+                with open(file_path, 'rb') as f:
+                    data = f.read()
+                    f.close()
+                encoded_file = base64.b64encode(data).decode()
+                
+                # MIME Type Detection
+                content_type, _ = mimetypes.guess_type(file_path)
+                if content_type is None:
+                    ext = os.path.splitext(file_path)[1].lower()
+                    if ext == '.mp4': content_type = 'video/mp4'
+                    elif ext == '.mov': content_type = 'video/quicktime'
+                    elif ext == '.avi': content_type = 'video/x-msvideo'
+                    else: content_type = 'application/octet-stream'
+
+                attachment = Attachment()
+                attachment.file_content = FileContent(encoded_file)
+                attachment.file_type = FileType(content_type)
+                attachment.file_name = FileName(os.path.basename(file_path))
+                attachment.disposition = Disposition('attachment')
+                message.attachment = attachment
+            else:
+                 st.warning(f"⚠️ SendGrid 附件未找到: {file_name}")
+
+        # Send via API
+        sg = SendGridAPIClient(api_key)
+        response = sg.send(message)
+        
+        # Check Status Code (2xx is success)
+        if 200 <= response.status_code < 300:
+            return True, "邮件发送成功 (SendGrid)", None
+        else:
+            return False, f"SendGrid Error: {response.status_code}", EmailError.UNKNOWN
+
+    except Exception as e:
+        # SendGrid python library throws python_http_client.exceptions.ForbiddenError etc.
+        err_msg = str(e)
+        if "401" in err_msg or "multichannel" in err_msg or "Forbidden" in err_msg:
+            return False, f"❌ API Key 无效或权限不足: {err_msg}", EmailError.AUTH_ERROR
+        if "403" in err_msg and "sender" in err_msg:
+             return False, f"❌ 发件人邮箱未验证 (Sender Identity Error): {err_msg}", EmailError.AUTH_ERROR
+        
+        error_type = classify_error(err_msg)
+        return False, f"❌ SendGrid Exception: {err_msg}", error_type
