@@ -11,7 +11,7 @@ import re
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name, load_source_file
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
-from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template
+from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template, save_draft_template, load_draft_template, clear_draft_template
 from src.utils.mapping_profiles import get_persisted_mapping, save_persisted_mapping
 from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
 from src.services.email_sender import send_email_gmail, send_email_sendgrid
@@ -825,9 +825,6 @@ def render_mode_ui(mode, sidebar_config):
         def on_template_change(m):
             """Callback when template dropdown changes"""
             # Update session state with selected template content
-            # Note: We need to read the index from widget key or value
-            # But widget key is updated *after* callback? No, during callback the value is available via st.session_state[key]
-            # Wait, st.selectbox stores VALUE (string name) in key
             selected_name = st.session_state[f"select_template_name_{m}"]
             # Find template
             t = next((x for x in load_user_templates() if x['name'] == selected_name), None)
@@ -837,6 +834,9 @@ def render_mode_ui(mode, sidebar_config):
                 st.session_state[f'email_subject_final_{m}'] = t['subject']
                 # Update body editor
                 st.session_state[f'email_body_{m}'] = t['body']
+                
+                # V2.16 Persistence: Save new draft immediately when template changes
+                save_draft_template(m, t['subject'], t['body'], source_name=t['name'])
 
         def reset_template_callback(m):
             """Callback to reset to Default Template (First one)"""
@@ -849,16 +849,34 @@ def render_mode_ui(mode, sidebar_config):
                 st.session_state[f'email_body_{m}'] = first['body']
                 # Reset selectbox widget value (by key)
                 st.session_state[f"select_template_name_{m}"] = first['name']
+                
+                # V2.16 Persistence: Save reset draft
+                save_draft_template(m, first['subject'], first['body'], source_name=first['name'])
 
 
-        # Initialize Body if empty
+        # Initialize Body if empty (Try Draft first)
         if f'email_body_{mode}' not in st.session_state:
-             if templates:
-                 st.session_state[f'email_body_{mode}'] = templates[0]['body']
+             # V2.16 Persistence: Try load draft
+             draft = load_draft_template(mode)
+             if draft:
+                 st.session_state[f'email_body_{mode}'] = draft.get('body', "")
+                 st.session_state[f'email_subject_visual_{mode}'] = draft.get('subject', "")
+                 st.session_state[f'email_subject_final_{mode}'] = draft.get('subject', "")
+                 # Try to restore source name selection if possible, otherwise keep default
+                 if draft.get('source_name'):
+                     # Check if source still exists in options
+                     if draft['source_name'] in template_options:
+                         st.session_state[f"selected_template_index_{mode}"] = template_options.index(draft['source_name'])
+                 
+                 st.toast("✅ 已恢复未保存的邮件草稿")
              else:
-                 st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
+                 # Fallback to default
+                 if templates:
+                     st.session_state[f'email_body_{mode}'] = templates[0]['body']
+                 else:
+                     st.session_state[f'email_body_{mode}'] = plain_to_quill_html(EMAIL_BODY_TEMPLATE)
 
-        # Initialize Subject Visual if empty
+        # Initialize Subject Visual if empty (if not set by draft above)
         if f'email_subject_visual_{mode}' not in st.session_state:
              if templates:
                  st.session_state[f'email_subject_visual_{mode}'] = templates[0]['subject']
@@ -873,6 +891,10 @@ def render_mode_ui(mode, sidebar_config):
             # 1. Template Selector
             col_templ, col_save_btn = st.columns([3, 1])
             with col_templ:
+                # If we restored a draft with a source name, we should have set index. 
+                # But selectbox uses index argument only on initial render (or key change).
+                # We can use key state but selectbox key holds VALUE.
+                
                 selected_template = st.selectbox(
                     "选择模板 (Select Template)",
                     template_options,
@@ -903,16 +925,12 @@ def render_mode_ui(mode, sidebar_config):
                              st.warning("请输入模板名称")
 
             # 2. Subject Input (Editable)
-            # Use 'email_subject_visual_{mode}' as key/value source
-            # But we need to sync it to 'email_subject_final_{mode}'
-            
-            # Note: We use unique key "input_subject_{mode}" for widget, and default value from session state
-            # When widget changes, we update session state?
-            # Better: use value=st.session_state[...] and ON_CHANGE to update
             
             def on_subject_change():
                 st.session_state[f'email_subject_final_{mode}'] = st.session_state[f'input_subject_{mode}']
                 st.session_state[f'email_subject_visual_{mode}'] = st.session_state[f'input_subject_{mode}']
+                # V2.16 Persistence: Save draft on subject change
+                save_draft_template(mode, st.session_state[f'input_subject_{mode}'], st.session_state.get(f'email_body_{mode}', ""), source_name="Custom Draft")
 
             st.text_input(
                 "邮件主题 (Subject)",
@@ -948,6 +966,8 @@ def render_mode_ui(mode, sidebar_config):
                 )
                 if new_body != current_body_content:
                      st.session_state[f'email_body_{mode}'] = new_body
+                     # V2.16 Persistence: Auto-save draft on body change
+                     save_draft_template(mode, st.session_state.get(f'email_subject_final_{mode}', ""), new_body, source_name="Custom Draft")
 
             else:
                 # Raw HTML / Plain Text Editor
@@ -960,6 +980,8 @@ def render_mode_ui(mode, sidebar_config):
                 )
                 if new_body_text != current_body_content:
                      st.session_state[f'email_body_{mode}'] = new_body_text
+                     # V2.16 Persistence: Auto-save draft on body change
+                     save_draft_template(mode, st.session_state.get(f'email_subject_final_{mode}', ""), new_body_text, source_name="Custom Draft")
 
             
             # 4. Buttons (Only Reset needed, Save is above)

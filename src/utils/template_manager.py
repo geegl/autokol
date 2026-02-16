@@ -181,3 +181,42 @@ def delete_user_template(name):
     new_templates = [t for t in current_templates if t["name"] != name]
     
     return _save_templates_internal(new_templates, sync_cloud=True)
+
+# --- V2.16 Draft Persistence (Fix: Data Loss on Refresh) ---
+
+def save_draft_template(mode, subject, body, source_name=""):
+    """Save current draft (subject/body) to a local file for auto-restore"""
+    try:
+        draft_file = os.path.join(BASE_DIR, "config", f"draft_template_{mode}.json")
+        import time
+        data = {
+            "timestamp": time.time(),
+            "subject": subject,
+            "body": body,
+            "source_name": source_name # Track which template source this draft came from or just "Custom"
+        }
+        with open(draft_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Failed to save draft: {e}")
+        return False
+
+def load_draft_template(mode):
+    """Load draft template if exists"""
+    try:
+        draft_file = os.path.join(BASE_DIR, "config", f"draft_template_{mode}.json")
+        if os.path.exists(draft_file):
+            with open(draft_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+def clear_draft_template(mode):
+    """Clear draft (e.g. when explicit new template is selected)"""
+    try:
+        draft_file = os.path.join(BASE_DIR, "config", f"draft_template_{mode}.json")
+        if os.path.exists(draft_file):
+            os.remove(draft_file)
+    except: pass

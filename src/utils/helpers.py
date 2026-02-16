@@ -177,7 +177,7 @@ def load_progress(mode):
     # 2. 尝试云端加载 (总是尝试，以防云端更新)
     cloud_df = _load_from_cloud(mode)
     
-    # 3. 决策逻辑：取行数更多的那个
+    # 3. 决策逻辑：取数据更完整（非空值更多）的那个
     final_df = local_df
     
     if cloud_df is not None:
@@ -189,27 +189,39 @@ def load_progress(mode):
                 st.toast(f"☁️ 已从云端恢复进度 ({len(cloud_df)} 行)")
             except: pass
         else:
-            # 两者都有 -> 比较行数
-            local_count = len(local_df)
-            cloud_count = len(cloud_df)
+            # 两者都有 -> 比较非空值总数 (Data Completeness)
+            # 仅比较 rows 可能导致覆盖掉已生成内容的版本 (如果行数一样)
+            local_filled = local_df.count().sum()
+            cloud_filled = cloud_df.count().sum()
             
-            if cloud_count > local_count:
-                st.toast(f"☁️ 云端进度 ({cloud_count} 行) 领先于本地 ({local_count} 行)，已同步", icon="🔄")
+            # 如果行数差异巨大，仍以行数为准
+            local_rows = len(local_df)
+            cloud_rows = len(cloud_df)
+            
+            if cloud_rows > local_rows:
+                 # 云端行数多，直接胜出
+                 choice = "cloud"
+            elif local_rows > cloud_rows:
+                 # 本地行数多，直接胜出
+                 choice = "local"
+            else:
+                 # 行数一样，比非空内容
+                 if cloud_filled > local_filled:
+                     choice = "cloud"
+                 else:
+                     choice = "local"
+
+            if choice == "cloud":
+                st.toast(f"☁️ 云端进度较新 (Items: {cloud_filled} vs {local_filled})，已同步", icon="🔄")
                 final_df = cloud_df
                 try:
                     cloud_df.to_csv(progress_file, index=False, encoding='utf-8-sig')
                 except: pass
-            elif local_count > cloud_count:
-                # 本地领先 -> 可以在后台静默同步到云端? 不，save_progress 会处理
-                # st.toast(f"💾 本地进度 ({local_count} 行) 领先于云端 ({cloud_count} 行)", icon="✅")
-                final_df = local_df
             else:
-                # 一样多 -> 优先用本地 (可能有些字段更新?)
+                # 本地胜出
                 final_df = local_df
 
     return final_df
-    
-    return None
 
 def _load_from_cloud(mode):
     """从云端 Redis 加载进度"""
