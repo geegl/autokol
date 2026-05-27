@@ -9,32 +9,14 @@ import streamlit as st
 from datetime import datetime
 from src.config import OUTPUT_DIR
 from src.services.tracking import TRACKING_BASE_URL
+from src.utils.api_keys import iter_api_keys
 
 HISTORY_FILE = os.path.join(OUTPUT_DIR, "send_history.json")
-FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
-
-def _get_api_key():
-    """获取 API Key (避免循环引用)"""
-    try:
-        if "PROGRESS_API_KEY" in st.secrets:
-            return st.secrets["PROGRESS_API_KEY"]
-    except:
-        pass
-    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
-
-
-def _iter_api_keys():
-    """Try configured key first, then fallback key."""
-    primary = _get_api_key()
-    keys = [primary]
-    if primary != FALLBACK_PROGRESS_API_KEY:
-        keys.append(FALLBACK_PROGRESS_API_KEY)
-    return keys
 
 def _save_history_to_cloud(history):
     """保存历史记录到云端"""
     try:
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             # use mode='send_history'
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={key}"
             response = requests.post(api_url, json={"data": history}, timeout=5)
@@ -50,7 +32,7 @@ def _save_history_to_cloud(history):
 def _load_history_from_cloud():
     """从云端加载历史记录"""
     try:
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=send_history&key={key}"
             response = requests.get(api_url, timeout=5)
             if response.status_code == 200:

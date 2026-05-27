@@ -7,11 +7,11 @@ import requests
 import streamlit as st
 
 from src.services.tracking import TRACKING_BASE_URL
+from src.utils.api_keys import iter_api_keys
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MAPPING_PROFILES_FILE = os.path.join(BASE_DIR, "config", "column_mapping_profiles.json")
-FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
 
 
 def _normalize_col_name(name):
@@ -24,22 +24,6 @@ def _column_signature(columns):
     raw = "|".join(normalized)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
-
-def _get_api_key():
-    try:
-        if "PROGRESS_API_KEY" in st.secrets:
-            return st.secrets["PROGRESS_API_KEY"]
-    except Exception:
-        pass
-    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
-
-
-def _iter_api_keys():
-    primary = _get_api_key()
-    keys = [primary]
-    if primary != FALLBACK_PROGRESS_API_KEY:
-        keys.append(FALLBACK_PROGRESS_API_KEY)
-    return keys
 
 
 def _default_profiles():
@@ -70,7 +54,7 @@ def _save_local_profiles(data):
 
 
 def _load_cloud_profiles():
-    for key in _iter_api_keys():
+    for key in iter_api_keys():
         try:
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=mapping_profiles&key={key}"
             response = requests.get(api_url, timeout=10)
@@ -88,7 +72,7 @@ def _load_cloud_profiles():
 
 
 def _save_cloud_profiles(data):
-    for key in _iter_api_keys():
+    for key in iter_api_keys():
         try:
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=mapping_profiles&key={key}"
             response = requests.post(api_url, json={"data": data}, timeout=10)

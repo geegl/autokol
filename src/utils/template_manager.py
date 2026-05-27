@@ -5,35 +5,16 @@ import requests
 import streamlit as st
 from src.utils.templates import EMAIL_BODY_HTML_TEMPLATE, get_email_subjects
 from src.services.tracking import TRACKING_BASE_URL
-
-FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
+from src.utils.api_keys import iter_api_keys
 
 # 配置文件路径
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 USER_TEMPLATES_FILE = os.path.join(BASE_DIR, "config", "user_templates.json")
 
-def _get_progress_api_key():
-    """Duplicate of helpers._get_progress_api_key to avoid circular imports"""
-    try:
-        if "PROGRESS_API_KEY" in st.secrets:
-            return st.secrets["PROGRESS_API_KEY"]
-    except:
-        pass
-    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
-
-
-def _iter_api_keys():
-    """Try configured key first, then fallback key."""
-    primary = _get_progress_api_key()
-    keys = [primary]
-    if primary != FALLBACK_PROGRESS_API_KEY:
-        keys.append(FALLBACK_PROGRESS_API_KEY)
-    return keys
-
 def _save_to_cloud(templates):
     """Save templates to cloud (using progress API with mode='user_templates')"""
     try:
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             # Use mode='user_templates' to sequester data
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={key}"
             # API expects {data: [...]} 
@@ -51,7 +32,7 @@ def _save_to_cloud(templates):
 def _load_from_cloud():
     """Load templates from cloud"""
     try:
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode=user_templates&key={key}"
             response = requests.get(api_url, timeout=10)
             if response.status_code == 200:

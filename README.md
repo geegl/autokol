@@ -1,4 +1,4 @@
-# 🔥 Utopai Cold Email Engine (V2.12)
+# 🔥 Utopai Cold Email Engine (V2.17)
 
 专业的冷启动邮件发送引擎，专为 Utopai Studios 定制。集成 LLM 个性化生成、PDF 附件管理、Vercel 邮件追踪和 Gmail SMTP 发送服务。
 
@@ -24,6 +24,8 @@
 ```text
 autokol/
 ├── app.py                  # 启动入口
+├── Dockerfile              # Docker 部署配置
+├── pyproject.toml          # 项目元数据
 ├── output/                 # ✅ [自动生成] 进度文件和结果保存位置
 ├── assets/                 # ✅ [手动管理] 资源文件夹
 │   ├── leads_form/         # ➡️ 将客户 Excel/CSV 名单放入此处
@@ -32,6 +34,10 @@ autokol/
 │   └── email_settings.yaml # 📧 邮件主题(列表)、签名、模板配置文件
 ├── email-tracker/          # Vercel 追踪服务代码
 ├── src/                    # 源代码
+│   ├── services/           # 核心服务 (LLM、邮件发送、追踪)
+│   ├── ui/                 # Streamlit UI 组件
+│   └── utils/              # 工具函数 (含 api_keys.py 共享模块)
+├── tests/                  # 单元测试
 └── requirements.txt
 ```
 
@@ -51,15 +57,32 @@ pip install -r requirements.txt
 2.  **客户名单**: 将 Excel/CSV 文件放入 `assets/leads_form/`。
 3.  **附件**: 将 PDF 放入 `assets/attachments/` (或 `B2B`/`B2C` 子目录)。
 
-### 3. 启动应用
+### 3. 环境变量（可选）
+
+通过环境变量可预填配置，避免每次手动输入：
+
+| 变量 | 说明 |
+|------|------|
+| `APP_PASSWORD` | 访问密码（设置后需密码登录） |
+| `SILICONFLOW_API_KEY` | 硅基流动 API Key |
+| `SILICONFLOW_BASE_URL` | LLM API 地址（默认 `https://api.siliconflow.cn/v1`） |
+| `SILICONFLOW_MODEL` | 模型名称（默认 `deepseek-ai/DeepSeek-V3.2`） |
+| `GMAIL_USER` | Gmail 发件人地址 |
+| `GMAIL_APP_PASSWORD` | Gmail 应用专用密码 |
+| `SENDGRID_API_KEY` | SendGrid API Key |
+| `SENDGRID_SENDER` | SendGrid 已验证发件人 |
+| `PROGRESS_API_KEY` | 云端同步密钥 |
+| `SENTRY_DSN` | Sentry 错误监控（可选） |
+
+### 4. 启动应用
 
 ```bash
 streamlit run app.py
 ```
 
-### 4. 完整工作流
+### 5. 完整工作流
 
-1.  **侧边栏配置**: 填入 API Key 和 Gmail 账号密码。
+1.  **侧边栏配置**: 填入 API Key 和 Gmail 账号密码（或通过环境变量预填）。
 2.  **模式选择**: 选择 B2B 企业模式或 B2C 创作者模式。
 3.  **数据加载**:
     *   从列表选择文件或拖拽上传。

@@ -9,7 +9,16 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
-streamlit.log
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Claude Code
+.claude/
 
 # 进度文件 (包含敏感数据)
 *_progress.json

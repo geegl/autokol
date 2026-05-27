@@ -5,8 +5,7 @@ import requests
 import streamlit as st
 from src.config import MODE_CONFIG
 from src.services.tracking import TRACKING_BASE_URL
-
-FALLBACK_PROGRESS_API_KEY = os.environ.get("FALLBACK_PROGRESS_API_KEY", "autokol_progress_fallback_v1")
+from src.utils.api_keys import get_progress_api_key, iter_api_keys, FALLBACK_PROGRESS_API_KEY
 
 
 def _warn_once(key, message):
@@ -118,30 +117,13 @@ def save_progress(df, mode, force_cloud=False):
             if force_cloud:
                 st.warning(f"⚠️ 云端备份异常: {e}")
 
-def _get_progress_api_key():
-    """获取 Progress API Key"""
-    try:
-        if "PROGRESS_API_KEY" in st.secrets:
-            return st.secrets["PROGRESS_API_KEY"]
-    except:
-        pass
-    return os.environ.get("PROGRESS_API_KEY", FALLBACK_PROGRESS_API_KEY)
-
-
-def _iter_api_keys():
-    """Try configured key first, then fallback key."""
-    primary = _get_progress_api_key()
-    keys = [primary]
-    if primary != FALLBACK_PROGRESS_API_KEY:
-        keys.append(FALLBACK_PROGRESS_API_KEY)
-    return keys
 
 def _save_to_cloud(df, mode):
     """保存到云端 Redis（静默失败改为日志警告）"""
     try:
-        api_key = _get_progress_api_key()
+        api_key = get_progress_api_key()
         data = df.to_dict(orient='records')
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={key}"
 
             # V2.9.13 Fix: Increase timeout for large payloads
@@ -226,7 +208,7 @@ def load_progress(mode):
 def _load_from_cloud(mode):
     """从云端 Redis 加载进度"""
     try:
-        for key in _iter_api_keys():
+        for key in iter_api_keys():
             api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={key}"
             # V2.9.13 Fix: Increase timeout
             response = requests.get(api_url, timeout=15)
@@ -261,7 +243,7 @@ def clear_progress(mode):
     
     # 2. 清除云端
     try:
-        api_key = _get_progress_api_key()
+        api_key = get_progress_api_key()
         api_url = f"{TRACKING_BASE_URL}/api/progress?mode={mode}&key={api_key}"
         # V2.9.13 Fix: Increase timeout
         requests.delete(api_url, timeout=10)
