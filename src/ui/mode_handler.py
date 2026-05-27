@@ -13,7 +13,7 @@ from src.utils.helpers import load_progress, save_progress, clear_progress, extr
 from src.utils.templates import get_email_subjects, EMAIL_BODY_TEMPLATE, EMAIL_BODY_HTML_TEMPLATE
 from src.utils.template_manager import load_user_templates, save_user_template, delete_user_template, save_draft_template, load_draft_template, clear_draft_template
 from src.utils.mapping_profiles import get_persisted_mapping, save_persisted_mapping
-from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL
+from src.services.tracking import generate_email_id, generate_tracking_pixel, generate_tracked_link, TRACKING_BASE_URL, replace_unsubscribe_url
 from src.services.email_sender import send_email_gmail, send_email_sendgrid
 from src.services.content_gen import generate_content_for_row
 from src.services.send_history import save_send_record, get_today_stats
@@ -1102,7 +1102,11 @@ def render_mode_ui(mode, sidebar_config):
                 )
             except Exception as e:
                 email_body_preview_html = f"<p style='color:red'>Template Error: {e}</p>"
-            
+
+            # 替换退订链接（预览）
+            if recipient_email:
+                email_body_preview_html = replace_unsubscribe_url(email_body_preview_html, recipient_email, tracking_url)
+
             # Generate Plain Text version for Preview/Multipart
             email_body_preview_text = strip_html_tags(email_body_preview_html)
             
@@ -1431,7 +1435,10 @@ def render_mode_ui(mode, sidebar_config):
                         except Exception as e:
                             # Fallback if formatting fails
                             formatted_body_html = f"<p>Error formatting email: {e}</p>"
-                        
+
+                        # 替换退订链接
+                        formatted_body_html = replace_unsubscribe_url(formatted_body_html, dest_email, tracking_url)
+
                         # Generate plain text version by stripping tags
                         body_txt = strip_html_tags(formatted_body_html)
                         

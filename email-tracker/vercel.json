@@ -7,6 +7,10 @@
         {
             "source": "/api/click/:id",
             "destination": "/api/click/[id].js"
+        },
+        {
+            "source": "/api/unsubscribe",
+            "destination": "/api/unsubscribe.js"
         }
     ]
 }
