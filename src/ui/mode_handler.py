@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 import time
 import os
 import gc # V2.16 Memory Optimization
@@ -167,18 +168,12 @@ def is_mapping_complete(required_cols_map, all_columns, mapped_cols):
     return all(k in mapped_cols and mapped_cols[k] in all_columns for k in required_keys)
 
 
-class _SafeFormatDict(dict):
-    """Keep unknown template placeholders as-is instead of raising KeyError."""
-    def __missing__(self, key):
-        return "{" + key + "}"
-
-
 def format_template_html(template_html, **kwargs):
-    """Safely format user template and avoid hard failure on missing placeholders."""
-    try:
-        return template_html.format_map(_SafeFormatDict(kwargs))
-    except Exception as e:
-        return f"<p style='color:red'>Template Error: {e}</p>"
+    """Safely replace {placeholder} tokens without breaking CSS braces."""
+    def _replace(match):
+        key = match.group(1)
+        return str(kwargs.get(key, match.group(0)))
+    return re.sub(r'\{(\w+)\}', _replace, template_html)
 
 
 def get_preview_row_label(df, row_index, preferred_col):

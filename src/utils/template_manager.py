@@ -152,6 +152,14 @@ def load_user_templates():
         _save_templates_internal(defaults, sync_cloud=True) # Push default to Cloud to init
         return defaults
 
+    # 4. Merge built-in HTML templates (always available, not user-editable)
+    builtin = _load_builtin_html_templates()
+    if builtin:
+        existing_names = {t["name"] for t in final_templates}
+        for t in builtin:
+            if t["name"] not in existing_names:
+                final_templates.append(t)
+
     return final_templates
 
 def save_user_template(name, subject, body):
