@@ -18,7 +18,7 @@ def render_onboarding():
     # 步骤 1: LLM API
     st.markdown("### 步骤 1: 配置 AI 服务")
     st.markdown("""
-    本工具使用 **硅基流动** 提供的 DeepSeek-V3.2 模型来生成邮件内容。
+    本工具使用 **硅基流动** 提供的 DeepSeek-V4-Pro 模型来生成邮件内容。
     
     1. 访问 [硅基流动控制台](https://cloud.siliconflow.cn/account/ak)
     2. 创建一个 API Key

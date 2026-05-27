@@ -31,7 +31,7 @@ def render_sidebar():
         )
         config['model_name'] = st.text_input(
             "Model Name",
-            value=_get_env("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3.2"),
+            value=_get_env("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V4-Pro"),
             key="sidebar_model_name"
         )
 

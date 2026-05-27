@@ -4,7 +4,7 @@
 
 ## ✨ 核心特性
 
-- **智能化生成**: 利用硅基流动 DeepSeek-V3.2 API 自动生成个性化的 "Project Title" 和 "Technical Detail"。
+- **智能化生成**: 利用硅基流动 DeepSeek-V4-Pro API 自动生成个性化的 "Project Title" 和 "Technical Detail"。
 - **所见即所得 (V2.5 NEW)**: 预览区不仅可以修改邮件正文，现在还支持直接 **编辑修正 AI 生成的内容** (Project Title/Detail)，修改后自动保存。
 - **高级主题管理 (V2.3 NEW)**: 下拉式选择预设高转化主题，亦可随时切换至自定义模式输入。
 - **B2B/B2C 双模式**: 支持针对企业客户和创作者的不同话术策略与邮件主题配置。
@@ -66,7 +66,7 @@ pip install -r requirements.txt
 | `APP_PASSWORD` | 访问密码（设置后需密码登录） |
 | `SILICONFLOW_API_KEY` | 硅基流动 API Key |
 | `SILICONFLOW_BASE_URL` | LLM API 地址（默认 `https://api.siliconflow.cn/v1`） |
-| `SILICONFLOW_MODEL` | 模型名称（默认 `deepseek-ai/DeepSeek-V3.2`） |
+| `SILICONFLOW_MODEL` | 模型名称（默认 `deepseek-ai/DeepSeek-V4-Pro`） |
 | `GMAIL_USER` | Gmail 发件人地址 |
 | `GMAIL_APP_PASSWORD` | Gmail 应用专用密码 |
 | `SENDGRID_API_KEY` | SendGrid API Key |

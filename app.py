@@ -32,7 +32,7 @@ if APP_PASSWORD:
         st.stop()
 
 st.title("🚀 Utopai Cold Email Engine")
-st.caption("Gmail/Resend + 硅基流动 DeepSeek-V3.2 | 自动保存进度")
+st.caption("Gmail/Resend + 硅基流动 DeepSeek-V4-Pro | 自动保存进度")
 
 # --- 渲染侧边栏 ---
 sidebar_config = render_sidebar()
