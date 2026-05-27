@@ -46,5 +46,18 @@ MODE_CONFIG = {
             "pregenerated": "Unnamed: 10"  # 已有的英文内容
         },
         "has_pregenerated_content": True
+    },
+    "PAI_PRO": {
+        "name": "PAI PRO",
+        "progress_file": os.path.join(OUTPUT_DIR, "autokol_progress_pai_pro.csv"),
+        "attachments": [],
+        "columns": {
+            "client_name": "Name",
+            "contact_person": "Name",
+            "contact_info": "emails",
+            "features": "segment",
+            "pain_point": "core_sections_visited"
+        },
+        "has_pregenerated_content": False
     }
 }

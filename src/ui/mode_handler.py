@@ -1049,7 +1049,7 @@ def render_mode_ui(mode, sidebar_config):
             client_name_val = current_row.get(c_client, '')
             contact_info_val = current_row.get(c_contact, '')
             recipient_email = extract_email(contact_info_val)
-            english_name = extract_english_name(client_name_val)
+            english_name = extract_english_name(client_name_val, recipient_email)
             
             # 预览时使用假 ID，且不触发真实追踪
             preview_email_id = f"preview_{mode}_{selected_index}"
@@ -1371,7 +1371,7 @@ def render_mode_ui(mode, sidebar_config):
                     c_client = final_mapping.get('client_name', config['columns']['client_name'])
                     
                     dest_email = extract_email(row.get(c_contact))
-                    dest_name = extract_english_name(row.get(c_client))
+                    dest_name = extract_english_name(row.get(c_client), dest_email)
                     
                     if not dest_email:
                         st.warning(f"跳过第 {idx+1} 行: 无法提取邮箱")

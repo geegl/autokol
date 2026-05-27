@@ -69,9 +69,10 @@ if render_onboarding():
 
 # --- 主界面 ---
 # 使用 Tabs 分隔功能
-tab_b2b, tab_b2c, tab_tracking, tab_history = st.tabs([
-    "🏢 B2B 企业模式", 
-    "🎨 B2C 创作者模式", 
+tab_b2b, tab_b2c, tab_pai_pro, tab_tracking, tab_history = st.tabs([
+    "🏢 B2B 企业模式",
+    "🎨 B2C 创作者模式",
+    "🚀 PAI PRO 模式",
     "📊 追踪仪表盘",
     "📨 发送记录"
 ])
@@ -83,6 +84,10 @@ with tab_b2b:
 # --- B2C 模式 ---
 with tab_b2c:
     render_mode_ui("B2C", sidebar_config)
+
+# --- PAI PRO 模式 ---
+with tab_pai_pro:
+    render_mode_ui("PAI_PRO", sidebar_config)
 
 # --- 追踪仪表盘 ---
 with tab_tracking:

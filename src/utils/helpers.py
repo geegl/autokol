@@ -23,20 +23,25 @@ def extract_email(contact_str):
     matches = re.findall(email_pattern, str(contact_str))
     return matches[0] if matches else None
 
-def extract_english_name(name_str):
-    """从姓名字符串中提取英文名（去除中文和括号内容）"""
+def extract_english_name(name_str, email_str=None):
+    """从姓名字符串中提取英文名（去除中文和括号内容）
+    如果名字为空，从邮箱地址提取用户名作为回退。
+    """
     if pd.isna(name_str):
-        return "there"
-    name = str(name_str)
+        name_str = None
+    name = str(name_str) if name_str else ""
     # 去除 @ 符号
     name = name.replace('@', '')
     # 去除括号及其内容
     name = re.sub(r'[（(][^）)]*[）)]', '', name)
     # 去除中文字符
-    name = re.sub(r'[\u4e00-\u9fff]+', '', name)
+    name = re.sub(r'[一-鿿]+', '', name)
     # 清理多余空格
     name = ' '.join(name.split()).strip()
-    name = ' '.join(name.split()).strip()
+    if not name and email_str:
+        email_str = str(email_str).strip()
+        if '@' in email_str:
+            name = email_str.split('@')[0]
     return name if name else "there"
 
 

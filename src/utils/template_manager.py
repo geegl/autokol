@@ -10,6 +10,30 @@ from src.utils.api_keys import iter_api_keys
 # 配置文件路径
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 USER_TEMPLATES_FILE = os.path.join(BASE_DIR, "config", "user_templates.json")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "assets", "templates")
+
+# Built-in HTML template files: (filename, display name, subject)
+_BUILTIN_HTML_TEMPLATES = [
+    ("pai_pro_deep_creation_and_pricing.html", "PAI Pro - Deep Creation + Pricing", "Your project is already in motion. Keep building"),
+    ("pai_pro_deep_creation_only.html", "PAI Pro - Deep Creation Only", "Here is a faster path to building your projects"),
+    ("pai_pro_paid_success.html", "PAI Pro - Paid Success", "Turn your next idea into a repeatable creation workflow"),
+    ("pai_pro_checkout_no_success.html", "PAI Pro - Checkout No Success", "Your project is already in motion. Don't stop here."),
+]
+
+
+def _load_builtin_html_templates():
+    """Load HTML templates from assets/templates/ directory."""
+    templates = []
+    for filename, name, subject in _BUILTIN_HTML_TEMPLATES:
+        filepath = os.path.join(TEMPLATES_DIR, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    body = f.read()
+                templates.append({"name": name, "subject": subject, "body": body})
+            except Exception as e:
+                print(f"Warning: Failed to load template {filename}: {e}")
+    return templates
 
 def _save_to_cloud(templates):
     """Save templates to cloud (using progress API with mode='user_templates')"""
