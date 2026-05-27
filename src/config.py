@@ -58,6 +58,7 @@ MODE_CONFIG = {
             "features": "segment",
             "pain_point": "core_sections_visited"
         },
-        "has_pregenerated_content": False
+        "has_pregenerated_content": False,
+        "skip_content_generation": True
     }
 }

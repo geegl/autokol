@@ -7,7 +7,6 @@ import gc # V2.16 Memory Optimization
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from streamlit_quill import st_quill
-import re
 
 from src.config import MODE_CONFIG, LEADS_DIR
 from src.utils.helpers import load_progress, save_progress, clear_progress, extract_email, extract_english_name, load_source_file
@@ -334,6 +333,25 @@ def render_mode_ui(mode, sidebar_config):
             # 新文件时重置工作流状态，防止沿用旧任务上下文
             st.session_state[f'decision_{mode}'] = None
             st.session_state[f'leads_confirmed_{mode}'] = False
+
+            # PAI_PRO: Auto-select matching template based on file name
+            if config.get('skip_content_generation') and source_name:
+                fname = source_name.lower()
+                all_templates = load_user_templates()
+                for t in all_templates:
+                    tname = t['name'].lower().replace(' ', '_').replace(' - ', '_')
+                    # Match file name fragment to template name
+                    if any(seg in fname for seg in tname.split('_') if len(seg) > 4):
+                        matched = t
+                        # More precise: check if file contains key template identifiers
+                        for keyword in ['pricing', 'paid_success', 'paid', 'checkout', 'creation']:
+                            if keyword in fname and keyword in tname:
+                                st.session_state[f"select_template_name_{mode}"] = t['name']
+                                st.session_state[f'email_subject_visual_{mode}'] = t['subject']
+                                st.session_state[f'email_subject_final_{mode}'] = t['subject']
+                                st.session_state[f'email_body_{mode}'] = t['body']
+                                save_draft_template(mode, t['subject'], t['body'], source_name=t['name'])
+                                break
             
             # V2.16 Memory Opt: Explicit GC when switching source
             gc.collect()
@@ -678,126 +696,130 @@ def render_mode_ui(mode, sidebar_config):
         if 'AI_Technical_Detail' not in df.columns:
             df['AI_Technical_Detail'] = ""
         if 'Email_Status' not in df.columns:
-            df['Email_Status'] = "待生成"
+            df['Email_Status'] = "待生成" if not config.get('skip_content_generation') else "待发送"
         if 'Content_Source' not in df.columns:
             df['Content_Source'] = ""
         st.session_state[cache_key] = df.copy()
         
         # --- 3. 数据预览与编辑 ---
-        st.subheader("🛠️ 客户数据预览")
+        if not config.get('skip_content_generation'):
+            st.subheader("🛠️ 客户数据预览")
         
-        # V2.9.6 Dynamic Key to force refresh after generation
-        if f'gen_version_{mode}' not in st.session_state:
-            st.session_state[f'gen_version_{mode}'] = 0
+            # V2.9.6 Dynamic Key to force refresh after generation
+            if f'gen_version_{mode}' not in st.session_state:
+                st.session_state[f'gen_version_{mode}'] = 0
             
-        edited_df = st.data_editor(
-            df,
-            num_rows="dynamic",
-            key=f"editor_{mode}_{st.session_state[f'gen_version_{mode}']}",
-            column_config={
-                "Email_Status": st.column_config.SelectboxColumn(
-                    "状态",
-                    options=["待生成", "已生成", "发送成功", "发送失败", "邮箱无效"],
-                    required=True
-                )
-            }
-        )
+            edited_df = st.data_editor(
+                df,
+                num_rows="dynamic",
+                key=f"editor_{mode}_{st.session_state[f'gen_version_{mode}']}",
+                column_config={
+                    "Email_Status": st.column_config.SelectboxColumn(
+                        "状态",
+                        options=["待生成", "已生成", "发送成功", "发送失败", "邮箱无效"],
+                        required=True
+                    )
+                }
+            )
         
-        # 同步编辑结果
-        if not edited_df.equals(df):
-            save_progress(edited_df, mode)
-            st.session_state[cache_key] = edited_df.copy()
-            df = edited_df
+            # 同步编辑结果
+            if not edited_df.equals(df):
+                save_progress(edited_df, mode)
+                st.session_state[cache_key] = edited_df.copy()
+                df = edited_df
 
-        # --- 4. 批量生成内容 ---
-        col_gen, col_clear = st.columns([1, 4])
-        with col_gen:
-            if st.button("✨ 批量生成内容", key=f"btn_gen_{mode}", type="primary"):
-                rows_to_generate = df[
-                    (df['AI_Project_Title'] == "") | 
-                    (df['AI_Technical_Detail'] == "")
-                ].index.tolist()
+            # --- 4. 批量生成内容 ---
+            col_gen, col_clear = st.columns([1, 4])
+            with col_gen:
+                if st.button("✨ 批量生成内容", key=f"btn_gen_{mode}", type="primary"):
+                    rows_to_generate = df[
+                        (df['AI_Project_Title'] == "") | 
+                        (df['AI_Technical_Detail'] == "")
+                    ].index.tolist()
                 
-                if not rows_to_generate:
-                    st.success("所有行都已生成内容！")
-                else:
-                    total_rows = len(rows_to_generate)
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    completed_count = 0
+                    if not rows_to_generate:
+                        st.success("所有行都已生成内容！")
+                    else:
+                        total_rows = len(rows_to_generate)
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        completed_count = 0
                     
-                    # 线程工作函数
-                    def process_row(idx):
-                        try:
-                            row = df.loc[idx]
-                            p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'], mapped_cols=final_mapping)
-                            return idx, p_title, t_detail, source, None
-                        except Exception as e:
-                            return idx, None, None, None, str(e)
+                        # 线程工作函数
+                        def process_row(idx):
+                            try:
+                                row = df.loc[idx]
+                                p_title, t_detail, source = generate_content_for_row(row, config, client, sidebar_config['model_name'], mapped_cols=final_mapping)
+                                return idx, p_title, t_detail, source, None
+                            except Exception as e:
+                                return idx, None, None, None, str(e)
 
-                    # 并发执行 (最大 3 个线程，避免速率限制)
-                    max_workers = 3
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        future_to_idx = {executor.submit(process_row, idx): idx for idx in rows_to_generate}
+                        # 并发执行 (最大 3 个线程，避免速率限制)
+                        max_workers = 3
+                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            future_to_idx = {executor.submit(process_row, idx): idx for idx in rows_to_generate}
                         
-                        for future in as_completed(future_to_idx):
-                            original_idx = future_to_idx[future]
-                            idx, p_title, t_detail, source, error = future.result()
+                            for future in as_completed(future_to_idx):
+                                original_idx = future_to_idx[future]
+                                idx, p_title, t_detail, source, error = future.result()
                             
-                            completed_count += 1
+                                completed_count += 1
                             
-                            if error:
-                                st.warning(f"第 {idx+1} 行生成失败: {error}")
-                            else:
-                                # DEBUG: 检查生成内容是否为空
-                                if not p_title or not t_detail:
-                                    st.error(f"⚠️ Row {idx+1}: 生成内容为空! Source: {source}")
+                                if error:
+                                    st.warning(f"第 {idx+1} 行生成失败: {error}")
                                 else:
-                                    # Optional: Show success toast periodically
-                                    if completed_count % 5 == 0:
-                                        st.toast(f"✅ 已生成 {completed_count} 行: {p_title[:15]}...")
+                                    # DEBUG: 检查生成内容是否为空
+                                    if not p_title or not t_detail:
+                                        st.error(f"⚠️ Row {idx+1}: 生成内容为空! Source: {source}")
+                                    else:
+                                        # Optional: Show success toast periodically
+                                        if completed_count % 5 == 0:
+                                            st.toast(f"✅ 已生成 {completed_count} 行: {p_title[:15]}...")
                                 
-                                df.loc[idx, 'AI_Project_Title'] = p_title
-                                df.loc[idx, 'AI_Technical_Detail'] = t_detail
-                                df.loc[idx, 'Content_Source'] = source
-                                df.loc[idx, 'Email_Status'] = "已生成"
+                                    df.loc[idx, 'AI_Project_Title'] = p_title
+                                    df.loc[idx, 'AI_Technical_Detail'] = t_detail
+                                    df.loc[idx, 'Content_Source'] = source
+                                    df.loc[idx, 'Email_Status'] = "已生成"
                                 
-                                # 实时保存
-                                save_progress(df, mode)
+                                    # 实时保存
+                                    save_progress(df, mode)
                             
-                            progress = completed_count / total_rows
-                            progress_bar.progress(progress)
-                            status_text.text(f"正在生成... ({completed_count}/{total_rows})")
+                                progress = completed_count / total_rows
+                                progress_bar.progress(progress)
+                                status_text.text(f"正在生成... ({completed_count}/{total_rows})")
                             
-            # V2.9.7 UX: Add explicit warning that table will refresh at end
-                            if completed_count == 1:
-                                st.info("ℹ️ 注意：为了性能，表格内容将在任务全部完成后统一刷新。请关注上方绿色弹窗确认进度。")
+                # V2.9.7 UX: Add explicit warning that table will refresh at end
+                                if completed_count == 1:
+                                    st.info("ℹ️ 注意：为了性能，表格内容将在任务全部完成后统一刷新。请关注上方绿色弹窗确认进度。")
 
-                status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
+                    status_text.success(f"✅ 生成完成！共 {len(rows_to_generate)} 条")
                 
-                # Checkpoint: Force Cloud Sync to ensure data persists even on Cloud reboot!
-                st.toast("☁️ 正在同步到云端数据库...")
-                save_progress(df, mode, force_cloud=True)
+                    # Checkpoint: Force Cloud Sync to ensure data persists even on Cloud reboot!
+                    st.toast("☁️ 正在同步到云端数据库...")
+                    save_progress(df, mode, force_cloud=True)
                 
-                # Switch decision to 'continue' so next rerun loads the progress we just made!
-                st.session_state[f'decision_{mode}'] = 'continue'
-                st.session_state[cache_key] = df.copy()
+                    # Switch decision to 'continue' so next rerun loads the progress we just made!
+                    st.session_state[f'decision_{mode}'] = 'continue'
+                    st.session_state[cache_key] = df.copy()
                 
-                # Increment version to force DataEditor refresh
-                st.session_state[f'gen_version_{mode}'] += 1
-                time.sleep(1)
-                st.rerun()
+                    # Increment version to force DataEditor refresh
+                    st.session_state[f'gen_version_{mode}'] += 1
+                    time.sleep(1)
+                    st.rerun()
 
-        with col_clear:
-            if st.button("🗑️ 清空进度", key=f"btn_clear_{mode}"):
-                clear_progress(mode)
-                st.session_state.pop(cache_key, None)
-                st.session_state[f'decision_{mode}'] = None
-                st.session_state[f'leads_confirmed_{mode}'] = False
-                st.rerun()
+            with col_clear:
+                if st.button("🗑️ 清空进度", key=f"btn_clear_{mode}"):
+                    clear_progress(mode)
+                    st.session_state.pop(cache_key, None)
+                    st.session_state[f'decision_{mode}'] = None
+                    st.session_state[f'leads_confirmed_{mode}'] = False
+                    st.rerun()
 
-        st.divider()
+            st.divider()
 
+
+        else:
+            st.info("✅ 模板已预配置，跳过内容生成步骤")
         # --- 5. 邮件模板编辑器 ---
         st.subheader("✏️ 邮件模板编辑")
         
@@ -999,8 +1021,11 @@ def render_mode_ui(mode, sidebar_config):
         col_idx, col_preview = st.columns([1, 2])
         
         with col_idx:
-            # 只选择已生成内容的行
-            ready_indices = df[df['AI_Project_Title'] != ""].index.tolist()
+            # 只选择已生成内容的行（PAI_PRO 跳过生成，显示全部）
+            if config.get('skip_content_generation'):
+                ready_indices = df.index.tolist()
+            else:
+                ready_indices = df[df['AI_Project_Title'] != ""].index.tolist()
             if not ready_indices:
                 st.warning("请先生成内容")
                 return
@@ -1017,22 +1042,23 @@ def render_mode_ui(mode, sidebar_config):
             current_row = df.loc[selected_index]
             
             # 显示关键字段
-            st.write("**AI 生成内容预览 (可编辑修正):**")
-            
-            # Project Title 编辑逻辑
-            new_p_title = st.text_input("Project Title", value=current_row['AI_Project_Title'], key=f"title_{selected_index}")
-            if new_p_title != current_row['AI_Project_Title']:
-                df.loc[selected_index, 'AI_Project_Title'] = new_p_title
-                save_progress(df, mode)
-                st.session_state[cache_key] = df.copy()
-                st.rerun()
-                
-            # Technical Detail 编辑逻辑
-            new_t_detail = st.text_area("Technical Detail", value=current_row['AI_Technical_Detail'], key=f"detail_{selected_index}")
-            if new_t_detail != current_row['AI_Technical_Detail']:
-                df.loc[selected_index, 'AI_Technical_Detail'] = new_t_detail
-                save_progress(df, mode)
-                st.session_state[cache_key] = df.copy()
+            if not config.get('skip_content_generation'):
+                st.write("**AI 生成内容预览 (可编辑修正):**")
+
+                # Project Title 编辑逻辑
+                new_p_title = st.text_input("Project Title", value=current_row['AI_Project_Title'], key=f"title_{selected_index}")
+                if new_p_title != current_row['AI_Project_Title']:
+                    df.loc[selected_index, 'AI_Project_Title'] = new_p_title
+                    save_progress(df, mode)
+                    st.session_state[cache_key] = df.copy()
+                    st.rerun()
+
+                # Technical Detail 编辑逻辑
+                new_t_detail = st.text_area("Technical Detail", value=current_row['AI_Technical_Detail'], key=f"detail_{selected_index}")
+                if new_t_detail != current_row['AI_Technical_Detail']:
+                    df.loc[selected_index, 'AI_Technical_Detail'] = new_t_detail
+                    save_progress(df, mode)
+                    st.session_state[cache_key] = df.copy()
                 st.rerun()
         
         with col_preview:
