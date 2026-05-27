@@ -9,8 +9,14 @@ from src.ui.onboarding import render_onboarding, check_config_status
 # --- 页面配置 ---
 st.set_page_config(page_title="Utopai Cold Email Engine", layout="wide")
 
-# --- 登录保护 (APP_PASSWORD 环境变量) ---
-APP_PASSWORD = os.environ.get("APP_PASSWORD")
+# --- 登录保护 (APP_PASSWORD) ---
+APP_PASSWORD = None
+try:
+    APP_PASSWORD = st.secrets.get("APP_PASSWORD")
+except Exception:
+    pass
+if not APP_PASSWORD:
+    APP_PASSWORD = os.environ.get("APP_PASSWORD")
 if APP_PASSWORD:
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False

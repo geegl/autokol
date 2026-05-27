@@ -1,6 +1,17 @@
 import os
 import streamlit as st
 
+
+def _get_env(key, default=""):
+    """Read from st.secrets first, then os.environ, then default."""
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.environ.get(key, default)
+
+
 def render_sidebar():
     """渲染侧边栏配置"""
     config = {}
@@ -10,23 +21,23 @@ def render_sidebar():
         st.subheader("1. LLM 设置 (硅基流动)")
         config['api_key'] = st.text_input(
             "硅基流动 API Key", type="password", key="sidebar_api_key",
-            value=os.environ.get("SILICONFLOW_API_KEY", ""),
+            value=_get_env("SILICONFLOW_API_KEY"),
             help="在 https://cloud.siliconflow.cn 获取"
         )
         config['base_url'] = st.text_input(
             "Base URL",
-            value=os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
+            value=_get_env("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
             key="sidebar_base_url"
         )
         config['model_name'] = st.text_input(
             "Model Name",
-            value=os.environ.get("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3.2"),
+            value=_get_env("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3.2"),
             key="sidebar_model_name"
         )
 
         st.subheader("2. 邮箱设置 (Email Service)")
         # V2.15: Dual Provider Support
-        default_provider = "SendGrid (API)" if os.environ.get("SENDGRID_API_KEY") else "Gmail (SMTP)"
+        default_provider = "SendGrid (API)" if _get_env("SENDGRID_API_KEY") else "Gmail (SMTP)"
         provider = st.selectbox(
             "选择邮件服务商",
             ["Gmail (SMTP)", "SendGrid (API)"],
@@ -40,24 +51,24 @@ def render_sidebar():
             st.caption("使用 Google Workspace / Gmail SMTP")
             config['email_user'] = st.text_input(
                 "发件人邮箱地址",
-                value=os.environ.get("GMAIL_USER", ""),
+                value=_get_env("GMAIL_USER"),
                 help="例如: growth@utopaistudios.com", key="sidebar_email_user"
             )
             config['email_pass'] = st.text_input(
                 "应用专用密码", type="password",
-                value=os.environ.get("GMAIL_APP_PASSWORD", ""),
+                value=_get_env("GMAIL_APP_PASSWORD"),
                 help="在 Google 账户 → 安全性 → 两步验证 → 应用专用密码 中生成", key="sidebar_email_pass"
             )
         else:
             st.caption("使用 SendGrid API (推荐大规模发送)")
             config['sendgrid_api_key'] = st.text_input(
                 "SendGrid API Key", type="password",
-                value=os.environ.get("SENDGRID_API_KEY", ""),
+                value=_get_env("SENDGRID_API_KEY"),
                 help="Starts with SG...", key="sidebar_sendgrid_key"
             )
             config['sendgrid_sender'] = st.text_input(
                 "已验证的发件人身份 (Verified Sender)",
-                value=os.environ.get("SENDGRID_SENDER", ""),
+                value=_get_env("SENDGRID_SENDER"),
                 help="必须与 SendGrid 后台验证的 Sender Identity 一致", key="sidebar_sendgrid_sender"
             )
         
